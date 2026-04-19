@@ -14,6 +14,7 @@ const statusConfig: Record<AssessmentStatus, { label: string; color: string }> =
 export default function AssessmentsPage() {
   const applications = useAppStore(s => s.applications)
   const addAssessment = useAppStore(s => s.addAssessment)
+  const markAssessmentDone = useAppStore(s => s.markAssessmentDone)
 
   const [statusFilter, setStatusFilter] = useState<AssessmentStatus>('pending')
   const [searchText, setSearchText] = useState('')
@@ -89,8 +90,8 @@ export default function AssessmentsPage() {
     form.resetFields()
   }
 
-  const handleMarkDone = (_appId: string, _assessmentId: string) => {
-    // TODO: 实现标记完成逻辑
+  const handleMarkDone = (appId: string, assessmentId: string) => {
+    markAssessmentDone(appId, assessmentId)
     message.success('已标记完成')
   }
 

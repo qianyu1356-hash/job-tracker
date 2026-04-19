@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Card, Button, Space, Tag, Modal, Form, Input, DatePicker, TimePicker, Select, message, Empty } from 'antd'
+import { App, Card, Button, Space, Tag, Modal, Form, Input, DatePicker, TimePicker, Select, Empty, Collapse } from 'antd'
 import { PlusOutlined, CalendarOutlined, UnorderedListOutlined, EditOutlined, MessageOutlined } from '@ant-design/icons'
 import { useAppStore } from '../../store'
 import type { Application, Interview, InterviewStatus } from '../../types'
@@ -13,7 +13,16 @@ const statusConfig: Record<InterviewStatus, { label: string; color: string }> = 
 
 const roundPresets = ['一面', '二面', '三面', 'HR面', '终面']
 
+const formatConfig: Record<string, string> = {
+  online_feishu: '线上 - 飞书',
+  online_dingtalk: '线上 - 钉钉',
+  online_tencent: '线上 - 腾讯会议',
+  online_zoom: '线上 - Zoom',
+  offline: '线下',
+}
+
 export default function InterviewsPage() {
+  const { message } = App.useApp()
   const applications = useAppStore(s => s.applications)
   const addInterview = useAppStore(s => s.addInterview)
   const updateInterview = useAppStore(s => s.updateInterview)
@@ -21,6 +30,7 @@ export default function InterviewsPage() {
   const [viewMode, setViewMode] = useState<'calendar' | 'list'>('calendar')
   const [searchText, setSearchText] = useState('')
   const [roundFilter, setRoundFilter] = useState('')
+  const [statusFilterList, setStatusFilterList] = useState<InterviewStatus | 'all'>('all')
   const [addModalOpen, setAddModalOpen] = useState(false)
   const [editModalOpen, setEditModalOpen] = useState(false)
   const [reviewModalOpen, setReviewModalOpen] = useState(false)
@@ -29,14 +39,22 @@ export default function InterviewsPage() {
   const [editForm] = Form.useForm()
   const [reviewForm] = Form.useForm()
 
+  // 自动判断面试状态：时间已过且未手动标记的设为已完成
   const allInterviews = applications.flatMap(app =>
-    app.interviews.map(i => ({ app, interview: i }))
+    app.interviews.map(i => {
+      const autoStatus: InterviewStatus =
+        i.status === 'abandoned' ? 'abandoned'
+        : dayjs(i.datetime).isBefore(dayjs()) ? 'done'
+        : 'upcoming'
+      return { app, interview: { ...i, status: autoStatus } }
+    })
   ).sort((a, b) => dayjs(a.interview.datetime).valueOf() - dayjs(b.interview.datetime).valueOf())
 
   const filteredInterviews = allInterviews.filter(({ app, interview }) => {
     const matchSearch = !searchText || app.company.includes(searchText) || app.position.includes(searchText)
-    const matchRound = !roundFilter || (roundFilter === '放弃' ? interview.status === 'abandoned' : interview.round === roundFilter)
-    return matchSearch && matchRound
+    const matchRound = !roundFilter || interview.round === roundFilter
+    const matchStatus = statusFilterList === 'all' || interview.status === statusFilterList
+    return matchSearch && matchRound && matchStatus
   })
 
   const calendarData: Record<string, typeof allInterviews> = {}
@@ -55,7 +73,6 @@ export default function InterviewsPage() {
       location: values.location,
       interviewer: values.interviewer,
       status: 'upcoming',
-      note: values.note,
     })
     message.success('面试已添加')
     setAddModalOpen(false)
@@ -69,10 +86,7 @@ export default function InterviewsPage() {
       okText: '确认放弃',
       okButtonProps: { danger: true },
       cancelText: '取消',
-      onOk: () => {
-        updateInterview(appId, interviewId, { status: 'abandoned' })
-        message.success('已标记为放弃')
-      }
+      onOk: () => { updateInterview(appId, interviewId, { status: 'abandoned' }); message.success('已标记为放弃') }
     })
   }
 
@@ -85,12 +99,37 @@ export default function InterviewsPage() {
     setReviewModalOpen(false)
   }
 
+  const handleSaveEdit = () => {
+    const values = editForm.getFieldsValue()
+    if (!selectedInterview) return
+    const updates: Partial<Interview> = {
+      round: values.round,
+      format: values.format,
+      location: values.location,
+      interviewer: values.interviewer,
+    }
+    if (values.date && values.time) {
+      updates.datetime = dayjs(values.date).hour(values.time.hour()).minute(values.time.minute()).toISOString()
+    }
+    updateInterview(selectedInterview.app.id, selectedInterview.interview.id, updates)
+    message.success('面试信息已更新')
+    setEditModalOpen(false)
+  }
+
   const today = dayjs()
   const startOfMonth = today.startOf('month')
   const calendarDays: (dayjs.Dayjs | null)[] = [
     ...Array(startOfMonth.day()).fill(null),
     ...Array.from({ length: today.daysInMonth() }, (_, i) => startOfMonth.add(i, 'day'))
   ]
+
+  // 状态统计
+  const counts = {
+    all: allInterviews.length,
+    upcoming: allInterviews.filter(i => i.interview.status === 'upcoming').length,
+    done: allInterviews.filter(i => i.interview.status === 'done').length,
+    abandoned: allInterviews.filter(i => i.interview.status === 'abandoned').length,
+  }
 
   return (
     <div>
@@ -105,6 +144,7 @@ export default function InterviewsPage() {
           <Button icon={<UnorderedListOutlined />} type={viewMode === 'list' ? 'primary' : 'default'} onClick={() => setViewMode('list')}>列表视图</Button>
         </Space>
 
+        {/* 日历视图 */}
         {viewMode === 'calendar' && (
           <div>
             <h3 style={{ marginBottom: 16 }}>{today.format('YYYY年M月')}</h3>
@@ -126,10 +166,22 @@ export default function InterviewsPage() {
                             key={interview.id}
                             onClick={() => {
                               setSelectedInterview({ app, interview })
-                              editForm.setFieldsValue({ round: interview.round, location: interview.location, interviewer: interview.interviewer })
+                              editForm.setFieldsValue({
+                                round: interview.round,
+                                format: interview.format,
+                                location: interview.location,
+                                interviewer: interview.interviewer,
+                                date: dayjs(interview.datetime),
+                                time: dayjs(interview.datetime),
+                              })
                               setEditModalOpen(true)
                             }}
-                            style={{ background: '#EDE9FE', color: '#5B21B6', borderRadius: 4, padding: '2px 6px', fontSize: 11, marginBottom: 2, cursor: 'pointer', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                            style={{
+                              background: interview.status === 'done' ? '#D1FAE5' : interview.status === 'abandoned' ? '#F1F5F9' : '#EDE9FE',
+                              color: interview.status === 'done' ? '#065F46' : interview.status === 'abandoned' ? '#94A3B8' : '#5B21B6',
+                              borderRadius: 4, padding: '2px 6px', fontSize: 11, marginBottom: 2,
+                              cursor: 'pointer', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
+                            }}
                           >
                             {dayjs(interview.datetime).format('HH:mm')} {app.company.slice(0, 3)}{interview.round}
                           </div>
@@ -143,76 +195,117 @@ export default function InterviewsPage() {
           </div>
         )}
 
+        {/* 列表视图 */}
         {viewMode === 'list' && (
           <div>
-            <Space style={{ marginBottom: 16 }}>
+            {/* 筛选栏 */}
+            <Space style={{ marginBottom: 16, flexWrap: 'wrap' }}>
               <Input placeholder="搜索公司或岗位" style={{ width: 200 }} value={searchText} onChange={e => setSearchText(e.target.value)} allowClear />
-              <Select
-                placeholder="全部轮次"
-                style={{ width: 150 }}
-                value={roundFilter || undefined}
-                onChange={setRoundFilter}
-                allowClear
-                options={[...roundPresets.map(r => ({ label: r, value: r })), { label: '已放弃', value: '放弃' }]}
+              <Select placeholder="全部轮次" style={{ width: 130 }} value={roundFilter || undefined} onChange={setRoundFilter} allowClear
+                options={roundPresets.map(r => ({ label: r, value: r }))}
+              />
+              <Select style={{ width: 130 }} value={statusFilterList} onChange={setStatusFilterList}
+                options={[
+                  { label: `全部 (${counts.all})`, value: 'all' },
+                  { label: `待面试 (${counts.upcoming})`, value: 'upcoming' },
+                  { label: `已完成 (${counts.done})`, value: 'done' },
+                  { label: `已放弃 (${counts.abandoned})`, value: 'abandoned' },
+                ]}
               />
             </Space>
+
             {filteredInterviews.length === 0 ? (
               <Empty description="暂无面试安排" />
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                {filteredInterviews.map(({ app, interview }) => (
-                  <Card
-                    key={interview.id}
-                    size="small"
-                    style={{
-                      borderLeft: `4px solid ${interview.status === 'abandoned' ? '#CBD5E1' : '#8B5CF6'}`,
-                      opacity: interview.status === 'abandoned' ? 0.7 : 1
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                      <div>
-                        <span style={{ fontWeight: 600, fontSize: 16 }}>{app.company}</span>
-                        <span style={{ color: '#64748B', fontSize: 14, marginLeft: 8 }}>{app.position}</span>
+                {filteredInterviews.map(({ app, interview }) => {
+                  const isPast = interview.status === 'done'
+                  const isAbandoned = interview.status === 'abandoned'
+                  const borderColor = isAbandoned ? '#CBD5E1' : isPast ? '#10B981' : '#8B5CF6'
+                  const hasReview = interview.review && (interview.review.questions || interview.review.improvements || interview.review.feeling)
+
+                  return (
+                    <Card
+                      key={interview.id}
+                      size="small"
+                      style={{ borderLeft: `4px solid ${borderColor}`, opacity: isAbandoned ? 0.65 : 1 }}
+                    >
+                      {/* 卡片头部 */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                        <div>
+                          <span style={{ fontWeight: 600, fontSize: 16 }}>{app.company}</span>
+                          <span style={{ color: '#64748B', fontSize: 14, marginLeft: 8 }}>{app.position}</span>
+                        </div>
+                        <Space size={4}>
+                          <Tag color="purple">{interview.round}</Tag>
+                          <Tag color={statusConfig[interview.status].color}>{statusConfig[interview.status].label}</Tag>
+                        </Space>
                       </div>
-                      <Tag color="purple">{interview.round}</Tag>
-                    </div>
-                    <div style={{ color: '#64748B', fontSize: 14, marginBottom: 8 }}>
-                      <div>📅 {dayjs(interview.datetime).format('YYYY-MM-DD (ddd) HH:mm')}</div>
-                      {interview.location && <div>📍 {interview.location}</div>}
-                      {interview.interviewer && <div>👤 面试官：{interview.interviewer}</div>}
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Tag color={statusConfig[interview.status].color}>{statusConfig[interview.status].label}</Tag>
-                      <Space size="small">
-                        <Button
-                          size="small"
-                          icon={<MessageOutlined />}
-                          onClick={() => {
+
+                      {/* 面试信息 */}
+                      <div style={{ color: '#64748B', fontSize: 13, marginBottom: 8 }}>
+                        <div>📅 {dayjs(interview.datetime).format('YYYY-MM-DD (ddd) HH:mm')}</div>
+                        {interview.format && <div>🖥 {formatConfig[interview.format] || interview.format}</div>}
+                        {interview.location && <div>📍 {interview.location}</div>}
+                        {interview.interviewer && <div>👤 面试官：{interview.interviewer}</div>}
+                      </div>
+
+                      {/* 岗位JD 折叠 */}
+                      {app.jd && (
+                        <Collapse ghost size="small" style={{ marginBottom: 8 }}>
+                          <Collapse.Panel header={<span style={{ fontSize: 12, color: '#64748B' }}>查看岗位JD</span>} key="jd">
+                            <div style={{ fontSize: 12, color: '#475569', whiteSpace: 'pre-wrap', maxHeight: 120, overflow: 'auto', background: '#F8FAFC', padding: 8, borderRadius: 6 }}>
+                              {app.jd}
+                            </div>
+                          </Collapse.Panel>
+                        </Collapse>
+                      )}
+
+                      {/* 复盘内容折叠 */}
+                      {hasReview && (
+                        <Collapse ghost size="small" style={{ marginBottom: 8 }}>
+                          <Collapse.Panel header={<span style={{ fontSize: 12, color: '#92400E' }}>📝 查看复盘</span>} key="review">
+                            <div style={{ background: '#FFFBEB', borderRadius: 6, padding: 10, fontSize: 12 }}>
+                              {interview.review?.questions && <div style={{ marginBottom: 6 }}><strong>问题记录：</strong>{interview.review.questions}</div>}
+                              {interview.review?.improvements && <div style={{ marginBottom: 6 }}><strong>改进方向：</strong>{interview.review.improvements}</div>}
+                              {interview.review?.feeling && <div><strong>整体感受：</strong>{interview.review.feeling}</div>}
+                            </div>
+                          </Collapse.Panel>
+                        </Collapse>
+                      )}
+
+                      {/* 操作按钮 */}
+                      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                        <Space size="small">
+                          <Button size="small" icon={<MessageOutlined />} onClick={() => {
                             setSelectedInterview({ app, interview })
                             reviewForm.setFieldsValue(interview.review || {})
                             setReviewModalOpen(true)
-                          }}
-                        >
-                          复盘
-                        </Button>
-                        <Button
-                          size="small"
-                          icon={<EditOutlined />}
-                          onClick={() => {
-                            setSelectedInterview({ app, interview })
-                            editForm.setFieldsValue({ round: interview.round, location: interview.location, interviewer: interview.interviewer })
-                            setEditModalOpen(true)
-                          }}
-                        >
-                          编辑
-                        </Button>
-                        {interview.status !== 'abandoned' && (
-                          <Button size="small" danger onClick={() => handleAbandon(app.id, interview.id)}>放弃</Button>
-                        )}
-                      </Space>
-                    </div>
-                  </Card>
-                ))}
+                          }}>
+                            {hasReview ? '编辑复盘' : '写复盘'}
+                          </Button>
+                          {!isAbandoned && (
+                            <Button size="small" icon={<EditOutlined />} onClick={() => {
+                              setSelectedInterview({ app, interview })
+                              editForm.setFieldsValue({
+                                round: interview.round,
+                                format: interview.format,
+                                location: interview.location,
+                                interviewer: interview.interviewer,
+                                date: dayjs(interview.datetime),
+                                time: dayjs(interview.datetime),
+                              })
+                              setEditModalOpen(true)
+                            }}>编辑</Button>
+                          )}
+                          {!isAbandoned && !isPast && (
+                            <Button size="small" danger onClick={() => handleAbandon(app.id, interview.id)}>放弃</Button>
+                          )}
+                        </Space>
+                      </div>
+                    </Card>
+                  )
+                })}
               </div>
             )}
           </div>
@@ -227,10 +320,14 @@ export default function InterviewsPage() {
           </Form.Item>
           <Form.Item name="round" label="面试轮次" rules={[{ required: true }]}>
             <div>
-              <Space size="small" style={{ marginBottom: 8 }}>
-                {roundPresets.map(r => <Button key={r} size="small" onClick={() => addForm.setFieldValue('round', r)}>{r}</Button>)}
+              <Space size="small" style={{ marginBottom: 8, flexWrap: 'wrap' }}>
+                {roundPresets.map(r => (
+                  <Button key={r} size="small" onClick={() => addForm.setFieldValue('round', r)}>{r}</Button>
+                ))}
               </Space>
-              <Input placeholder="或自定义输入，如：总监面" />
+              <Form.Item name="round" noStyle>
+                <Input placeholder="或自定义输入，如：总监面" />
+              </Form.Item>
             </div>
           </Form.Item>
           <Space.Compact style={{ width: '100%' }}>
@@ -242,38 +339,43 @@ export default function InterviewsPage() {
             </Form.Item>
           </Space.Compact>
           <Form.Item name="format" label="面试形式">
-            <Select allowClear options={[
-              { label: '线上 - 飞书', value: 'online_feishu' },
-              { label: '线上 - 钉钉', value: 'online_dingtalk' },
-              { label: '线上 - 腾讯会议', value: 'online_tencent' },
-              { label: '线下', value: 'offline' },
-            ]} />
+            <Select allowClear options={Object.entries(formatConfig).map(([k, v]) => ({ label: v, value: k }))} />
           </Form.Item>
-          <Form.Item name="location" label="地点/会议链接"><Input placeholder="线下地址或会议链接" /></Form.Item>
-          <Form.Item name="interviewer" label="面试官"><Input placeholder="面试官姓名（可选）" /></Form.Item>
+          <Form.Item name="location" label="地点/会议链接"><Input /></Form.Item>
+          <Form.Item name="interviewer" label="面试官"><Input /></Form.Item>
         </Form>
       </Modal>
 
       {/* 编辑面试弹窗 */}
       <Modal
-        title={selectedInterview ? `${selectedInterview.app.company} · ${selectedInterview.interview.round}` : '编辑面试'}
+        title={selectedInterview ? `编辑 · ${selectedInterview.app.company} · ${selectedInterview.interview.round}` : '编辑面试'}
         open={editModalOpen}
         onCancel={() => setEditModalOpen(false)}
-        onOk={() => {
-          const values = editForm.getFieldsValue()
-          if (selectedInterview) {
-            updateInterview(selectedInterview.app.id, selectedInterview.interview.id, {
-              round: values.round,
-              location: values.location,
-              interviewer: values.interviewer,
-            })
-            message.success('面试信息已更新')
-          }
-          setEditModalOpen(false)
-        }}
+        onOk={handleSaveEdit}
+        width={560}
       >
         <Form form={editForm} layout="vertical">
-          <Form.Item name="round" label="面试轮次"><Input /></Form.Item>
+          <Form.Item label="面试轮次">
+            <Space size="small" style={{ marginBottom: 8, flexWrap: 'wrap' }}>
+              {roundPresets.map(r => (
+                <Button key={r} size="small" onClick={() => editForm.setFieldValue('round', r)}>{r}</Button>
+              ))}
+            </Space>
+            <Form.Item name="round" noStyle>
+              <Input placeholder="或自定义输入" />
+            </Form.Item>
+          </Form.Item>
+          <Space.Compact style={{ width: '100%' }}>
+            <Form.Item name="date" label="面试日期" style={{ flex: 1 }}>
+              <DatePicker style={{ width: '100%' }} />
+            </Form.Item>
+            <Form.Item name="time" label="面试时间" style={{ flex: 1 }}>
+              <TimePicker format="HH:mm" style={{ width: '100%' }} />
+            </Form.Item>
+          </Space.Compact>
+          <Form.Item name="format" label="面试形式">
+            <Select allowClear options={Object.entries(formatConfig).map(([k, v]) => ({ label: v, value: k }))} />
+          </Form.Item>
           <Form.Item name="location" label="地点/会议链接"><Input /></Form.Item>
           <Form.Item name="interviewer" label="面试官"><Input /></Form.Item>
         </Form>

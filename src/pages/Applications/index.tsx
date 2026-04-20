@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { App, Card, Button, Input, Space, Table, Tag, Drawer, Descriptions, List, Modal, Form, Select, DatePicker, TimePicker, Divider } from 'antd'
-import { PlusOutlined, SearchOutlined, TableOutlined, AppstoreOutlined, EditOutlined, SaveOutlined, CloseOutlined } from '@ant-design/icons'
+import { PlusOutlined, SearchOutlined, EditOutlined, SaveOutlined, CloseOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { useAppStore } from '../../store'
 import type { Application, ApplicationStatus, JobType } from '../../types'
@@ -37,7 +37,6 @@ export default function ApplicationsPage() {
   const addAssessment = useAppStore(s => s.addAssessment)
   const addInterview = useAppStore(s => s.addInterview)
 
-  const [viewMode, setViewMode] = useState<'table' | 'board'>('table')
   const [searchText, setSearchText] = useState('')
   const [statusFilter, setStatusFilter] = useState<ApplicationStatus | 'all'>('all')
   const [cityFilter, setCityFilter] = useState('')
@@ -246,39 +245,9 @@ export default function ApplicationsPage() {
               options={Object.entries(jobTypeConfig).map(([k, v]) => ({ label: v, value: k }))}
             />
           </Space>
-          <Space>
-            <Button icon={<TableOutlined />} type={viewMode === 'table' ? 'primary' : 'default'} onClick={() => setViewMode('table')}>表格</Button>
-            <Button icon={<AppstoreOutlined />} type={viewMode === 'board' ? 'primary' : 'default'} onClick={() => setViewMode('board')}>看板</Button>
-          </Space>
         </div>
 
-        {viewMode === 'table' && (
-          <Table dataSource={filteredApps} columns={columns} rowKey="id" pagination={{ pageSize: 10 }} />
-        )}
-
-        {viewMode === 'board' && (
-          <div style={{ display: 'flex', gap: 16, overflowX: 'auto' }}>
-            {(['submitted', 'screening', 'assessment', 'interviewing', 'rejected', 'offered'] as ApplicationStatus[]).map(status => (
-              <div key={status} style={{ minWidth: 240, flex: 1 }}>
-                <div style={{ background: '#F8FAFC', padding: '10px 14px', borderRadius: 8, marginBottom: 10, fontWeight: 600, fontSize: 13 }}>
-                  {statusConfig[status].label} ({filteredApps.filter(a => a.status === status).length})
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {filteredApps.filter(a => a.status === status).map(app => (
-                    <Card key={app.id} size="small" hoverable onClick={() => setSelectedAppId(app.id)}>
-                      <div style={{ fontWeight: 600, marginBottom: 4 }}>{app.company}</div>
-                      <div style={{ fontSize: 13, color: '#64748B', marginBottom: 6 }}>{app.position}</div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
-                        {app.city && <Tag>{app.city}</Tag>}
-                        <span style={{ color: '#94A3B8' }}>{app.applyDate}</span>
-                      </div>
-                    </Card>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+        <Table dataSource={filteredApps} columns={columns} rowKey="id" pagination={{ pageSize: 10 }} />
       </Card>
 
       {/* 详情抽屉 */}

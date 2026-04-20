@@ -1,4 +1,4 @@
-import { App, Card, Form, Input, Select, Button, Switch, Space, Divider, Radio } from 'antd'
+import { App, Card, Form, Input, Select, Button, Switch, Space, Divider, Radio, Flex } from 'antd'
 
 const jobTypeOptions = [
   { label: '🔥 秋招冲刺中', value: 'autumn_sprint' },
@@ -13,34 +13,9 @@ export default function SettingsPage() {
   const [profileForm] = Form.useForm()
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '200px 1fr', gap: 20, alignItems: 'start' }}>
-      {/* 左侧导航 */}
-      <Card bodyStyle={{ padding: 0 }}>
-        {[
-          { label: '👤 个人信息', href: '#profile' },
-          { label: '🎯 求职状态', href: '#status' },
-          { label: '🔔 通知提醒', href: '#notify' },
-          { label: '⚠️ 账号安全', href: '#danger' },
-        ].map(item => (
-          <a
-            key={item.href}
-            href={item.href}
-            style={{
-              display: 'block', padding: '12px 20px', fontSize: 14,
-              color: '#475569', textDecoration: 'none', borderLeft: '3px solid transparent',
-            }}
-            onMouseEnter={e => (e.currentTarget.style.background = '#F8FAFC')}
-            onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-          >
-            {item.label}
-          </a>
-        ))}
-      </Card>
+    <Flex vertical gap="large" style={{ width: '100%' }}>
 
-      {/* 右侧内容 */}
-      <Space direction="vertical" style={{ width: '100%' }} size="large">
-
-        {/* 个人信息 */}
+      {/* 个人信息 */}
         <Card id="profile" title="个人信息">
           <Form
             form={profileForm}
@@ -145,7 +120,6 @@ export default function SettingsPage() {
           ))}
         </Card>
 
-      </Space>
-    </div>
+      </Flex>
   )
 }

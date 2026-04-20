@@ -230,78 +230,87 @@ export default function InterviewsPage() {
                       size="small"
                       style={{ borderLeft: `4px solid ${borderColor}`, opacity: isAbandoned ? 0.65 : 1 }}
                     >
-                      {/* 卡片头部 */}
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                        {/* 左列：基本信息 */}
                         <div>
-                          <span style={{ fontWeight: 600, fontSize: 16 }}>{app.company}</span>
-                          <span style={{ color: '#64748B', fontSize: 14, marginLeft: 8 }}>{app.position}</span>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                            <div>
+                              <span style={{ fontWeight: 600, fontSize: 16 }}>{app.company}</span>
+                              <span style={{ color: '#64748B', fontSize: 14, marginLeft: 8 }}>{app.position}</span>
+                            </div>
+                          </div>
+                          <Space size={4} style={{ marginBottom: 8 }}>
+                            <Tag color="purple">{interview.round}</Tag>
+                            <Tag color={statusConfig[interview.status].color}>{statusConfig[interview.status].label}</Tag>
+                          </Space>
+                          <div style={{ color: '#64748B', fontSize: 13 }}>
+                            <div>📅 {dayjs(interview.datetime).format('YYYY-MM-DD (ddd) HH:mm')}</div>
+                            {interview.format && <div>🖥 {formatConfig[interview.format] || interview.format}</div>}
+                            {interview.location && (
+                              <div>
+                                📍{' '}
+                                {interview.location.startsWith('http') ? (
+                                  <a href={interview.location} target="_blank" rel="noreferrer">{interview.location}</a>
+                                ) : interview.location}
+                              </div>
+                            )}
+                            {interview.interviewer && <div>👤 面试官：{interview.interviewer}</div>}
+                          </div>
                         </div>
-                        <Space size={4}>
-                          <Tag color="purple">{interview.round}</Tag>
-                          <Tag color={statusConfig[interview.status].color}>{statusConfig[interview.status].label}</Tag>
-                        </Space>
-                      </div>
 
-                      {/* 面试信息 */}
-                      <div style={{ color: '#64748B', fontSize: 13, marginBottom: 8 }}>
-                        <div>📅 {dayjs(interview.datetime).format('YYYY-MM-DD (ddd) HH:mm')}</div>
-                        {interview.format && <div>🖥 {formatConfig[interview.format] || interview.format}</div>}
-                        {interview.location && <div>📍 {interview.location}</div>}
-                        {interview.interviewer && <div>👤 面试官：{interview.interviewer}</div>}
-                      </div>
-
-                      {/* 岗位JD 折叠 */}
-                      {app.jd && (
-                        <Collapse ghost size="small" style={{ marginBottom: 8 }}>
-                          <Collapse.Panel header={<span style={{ fontSize: 12, color: '#64748B' }}>查看岗位JD</span>} key="jd">
-                            <div style={{ fontSize: 12, color: '#475569', whiteSpace: 'pre-wrap', maxHeight: 120, overflow: 'auto', background: '#F8FAFC', padding: 8, borderRadius: 6 }}>
-                              {app.jd}
-                            </div>
-                          </Collapse.Panel>
-                        </Collapse>
-                      )}
-
-                      {/* 复盘内容折叠 */}
-                      {hasReview && (
-                        <Collapse ghost size="small" style={{ marginBottom: 8 }}>
-                          <Collapse.Panel header={<span style={{ fontSize: 12, color: '#92400E' }}>📝 查看复盘</span>} key="review">
-                            <div style={{ background: '#FFFBEB', borderRadius: 6, padding: 10, fontSize: 12 }}>
-                              {interview.review?.questions && <div style={{ marginBottom: 6 }}><strong>问题记录：</strong>{interview.review.questions}</div>}
-                              {interview.review?.improvements && <div style={{ marginBottom: 6 }}><strong>改进方向：</strong>{interview.review.improvements}</div>}
-                              {interview.review?.feeling && <div><strong>整体感受：</strong>{interview.review.feeling}</div>}
-                            </div>
-                          </Collapse.Panel>
-                        </Collapse>
-                      )}
-
-                      {/* 操作按钮 */}
-                      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                        <Space size="small">
-                          <Button size="small" icon={<MessageOutlined />} onClick={() => {
-                            setSelectedInterview({ app, interview })
-                            reviewForm.setFieldsValue(interview.review || {})
-                            setReviewModalOpen(true)
-                          }}>
-                            {hasReview ? '编辑复盘' : '写复盘'}
-                          </Button>
-                          {!isAbandoned && (
-                            <Button size="small" icon={<EditOutlined />} onClick={() => {
-                              setSelectedInterview({ app, interview })
-                              editForm.setFieldsValue({
-                                round: interview.round,
-                                format: interview.format,
-                                location: interview.location,
-                                interviewer: interview.interviewer,
-                                date: dayjs(interview.datetime),
-                                time: dayjs(interview.datetime),
-                              })
-                              setEditModalOpen(true)
-                            }}>编辑</Button>
-                          )}
-                          {!isAbandoned && !isPast && (
-                            <Button size="small" danger onClick={() => handleAbandon(app.id, interview.id)}>放弃</Button>
-                          )}
-                        </Space>
+                        {/* 右列：JD、复盘、操作 */}
+                        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                          <div>
+                            {app.jd && (
+                              <Collapse ghost size="small" style={{ marginBottom: 4 }}>
+                                <Collapse.Panel header={<span style={{ fontSize: 12, color: '#64748B' }}>查看岗位JD</span>} key="jd">
+                                  <div style={{ fontSize: 12, color: '#475569', whiteSpace: 'pre-wrap', maxHeight: 120, overflow: 'auto', background: '#F8FAFC', padding: 8, borderRadius: 6 }}>
+                                    {app.jd}
+                                  </div>
+                                </Collapse.Panel>
+                              </Collapse>
+                            )}
+                            {hasReview && (
+                              <Collapse ghost size="small" style={{ marginBottom: 4 }}>
+                                <Collapse.Panel header={<span style={{ fontSize: 12, color: '#92400E' }}>📝 查看复盘</span>} key="review">
+                                  <div style={{ background: '#FFFBEB', borderRadius: 6, padding: 10, fontSize: 12 }}>
+                                    {interview.review?.questions && <div style={{ marginBottom: 6 }}><strong>问题记录：</strong>{interview.review.questions}</div>}
+                                    {interview.review?.improvements && <div style={{ marginBottom: 6 }}><strong>改进方向：</strong>{interview.review.improvements}</div>}
+                                    {interview.review?.feeling && <div><strong>整体感受：</strong>{interview.review.feeling}</div>}
+                                  </div>
+                                </Collapse.Panel>
+                              </Collapse>
+                            )}
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                            <Space size="small">
+                              <Button size="small" icon={<MessageOutlined />} onClick={() => {
+                                setSelectedInterview({ app, interview })
+                                reviewForm.setFieldsValue(interview.review || {})
+                                setReviewModalOpen(true)
+                              }}>
+                                {hasReview ? '编辑复盘' : '写复盘'}
+                              </Button>
+                              {!isAbandoned && (
+                                <Button size="small" icon={<EditOutlined />} onClick={() => {
+                                  setSelectedInterview({ app, interview })
+                                  editForm.setFieldsValue({
+                                    round: interview.round,
+                                    format: interview.format,
+                                    location: interview.location,
+                                    interviewer: interview.interviewer,
+                                    date: dayjs(interview.datetime),
+                                    time: dayjs(interview.datetime),
+                                  })
+                                  setEditModalOpen(true)
+                                }}>编辑</Button>
+                              )}
+                              {!isAbandoned && !isPast && (
+                                <Button size="small" danger onClick={() => handleAbandon(app.id, interview.id)}>放弃</Button>
+                              )}
+                            </Space>
+                          </div>
+                        </div>
                       </div>
                     </Card>
                   )

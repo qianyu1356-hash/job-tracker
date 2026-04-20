@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Card, Row, Col, Statistic, List, Tag, Empty, Checkbox, Button, Input, Modal, App } from 'antd'
+import { Card, Row, Col, Statistic, List, Tag, Empty, Checkbox, Button, Input, Modal, App, Tooltip } from 'antd'
 import { ArrowUpOutlined, RightOutlined, PlusOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { useAppStore } from '../../store'
@@ -53,6 +53,40 @@ export default function HomePage() {
     return dayjs(timeA).valueOf() - dayjs(timeB).valueOf()
   }).slice(0, 5)
 
+  // 本月日历数据
+  const today = dayjs()
+  const startOfMonth = today.startOf('month')
+  const calendarDays: (dayjs.Dayjs | null)[] = [
+    ...Array(startOfMonth.day()).fill(null),
+    ...Array.from({ length: today.daysInMonth() }, (_, i) => startOfMonth.add(i, 'day'))
+  ]
+
+  type CalendarEvent =
+    | { type: 'interview', app: any, interview: any }
+    | { type: 'assessment', app: any, assessment: any }
+
+  const calendarData: Record<string, CalendarEvent[]> = {}
+
+  // 收集面试
+  applications.forEach(app => {
+    app.interviews.forEach(interview => {
+      const date = dayjs(interview.datetime).format('YYYY-MM-DD')
+      if (!calendarData[date]) calendarData[date] = []
+      calendarData[date].push({ type: 'interview', app, interview })
+    })
+  })
+
+  // 收集测评
+  applications.forEach(app => {
+    app.assessments.forEach(assessment => {
+      if (assessment.status === 'pending') {
+        const date = dayjs(assessment.deadline).format('YYYY-MM-DD')
+        if (!calendarData[date]) calendarData[date] = []
+        calendarData[date].push({ type: 'assessment', app, assessment })
+      }
+    })
+  })
+
   return (
     <div>
       <div style={{ marginBottom: 24 }}>
@@ -102,53 +136,64 @@ export default function HomePage() {
         </Col>
       </Row>
 
-      {/* 今日任务 + 记录板 */}
-      <Row gutter={16}>
-        <Col span={12}>
-          <Card
-            title={<span>⏰ 今日任务</span>}
-            extra={<a onClick={() => navigate('/assessments')}>查看全部 <RightOutlined /></a>}
-          >
-            {todayTasks.length === 0 ? (
-              <Empty description="暂无今日任务" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-            ) : (
-              <List
-                dataSource={todayTasks}
-                renderItem={task => {
-                  const isUrgent = task.type === 'assessment' && dayjs(task.data.deadline).diff(dayjs(), 'hour') <= 3
-                  return (
-                    <List.Item
-                      style={{
-                        borderLeft: `3px solid ${isUrgent ? '#EF4444' : '#3B82F6'}`,
-                        paddingLeft: 12,
-                        background: isUrgent ? '#FEF2F2' : 'transparent',
-                        cursor: 'pointer'
-                      }}
-                      onClick={() => navigate(task.type === 'assessment' ? '/assessments' : '/interviews')}
-                    >
-                      <List.Item.Meta
-                        title={`${task.app.company} - ${task.type === 'assessment' ? task.data.name : task.data.round}`}
-                        description={
-                          <div>
-                            <div>{task.app.position}</div>
-                            <div style={{ color: isUrgent ? '#EF4444' : '#3B82F6', fontWeight: 500 }}>
-                              {task.type === 'assessment'
-                                ? `⏱ ${dayjs(task.data.deadline).format('HH:mm')} 截止`
-                                : `✓ 今天 ${dayjs(task.data.datetime).format('HH:mm')}`
-                              }
-                            </div>
-                          </div>
-                        }
-                      />
-                    </List.Item>
-                  )
-                }}
-              />
-            )}
+      {/* 本月日历 + 记录板 */}
+      <Row gutter={16} style={{ marginBottom: 24 }}>
+        <Col span={16}>
+          <Card title={<span>📅 本月日历 · {today.format('YYYY年M月')}</span>}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 1, background: '#E2E8F0', border: '1px solid #E2E8F0', borderRadius: 8, overflow: 'hidden' }}>
+              {['周日', '周一', '周二', '周三', '周四', '周五', '周六'].map(d => (
+                <div key={d} style={{ background: '#F8FAFC', padding: 8, textAlign: 'center', fontSize: 12, fontWeight: 600, color: '#64748B' }}>{d}</div>
+              ))}
+              {calendarDays.map((day, idx) => {
+                const dateStr = day?.format('YYYY-MM-DD') || ''
+                const dayEvents = day ? (calendarData[dateStr] || []) : []
+                const isToday = day?.isSame(today, 'day')
+                const displayEvents = dayEvents.slice(0, 3)
+                const moreCount = dayEvents.length - 3
+
+                return (
+                  <div key={idx} style={{ background: isToday ? '#EFF6FF' : day ? '#fff' : '#FAFBFC', minHeight: 80, padding: 6 }}>
+                    {day && (
+                      <>
+                        <div style={{ fontSize: 13, fontWeight: isToday ? 600 : 400, color: isToday ? '#3B82F6' : '#0F172A', marginBottom: 4 }}>{day.date()}</div>
+                        {displayEvents.map((event, i) => {
+                          const isInterview = event.type === 'interview'
+                          const tooltipContent = isInterview
+                            ? `${event.app.company} - ${event.app.position}\n${event.interview.round}\n${dayjs(event.interview.datetime).format('HH:mm')}`
+                            : `${event.app.company} - ${event.app.position}\n${event.assessment.name}\n截止 ${dayjs(event.assessment.deadline).format('HH:mm')}`
+
+                          return (
+                            <Tooltip key={i} title={<div style={{ whiteSpace: 'pre-line' }}>{tooltipContent}</div>}>
+                              <div
+                                onClick={() => navigate(isInterview ? '/interviews' : '/assessments')}
+                                style={{
+                                  background: isInterview ? '#EDE9FE' : '#FEF3C7',
+                                  color: isInterview ? '#5B21B6' : '#92400E',
+                                  borderRadius: 3, padding: '2px 4px', fontSize: 10, marginBottom: 2,
+                                  cursor: 'pointer', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
+                                }}
+                              >
+                                {isInterview
+                                  ? `${dayjs(event.interview.datetime).format('HH:mm')} ${event.app.company.slice(0, 3)}`
+                                  : `截止${dayjs(event.assessment.deadline).format('HH:mm')} ${event.app.company.slice(0, 3)}`
+                                }
+                              </div>
+                            </Tooltip>
+                          )
+                        })}
+                        {moreCount > 0 && (
+                          <div style={{ fontSize: 10, color: '#94A3B8', marginTop: 2 }}>+{moreCount}</div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
           </Card>
         </Col>
 
-        <Col span={12}>
+        <Col span={8}>
           <Card
             title={<span>📋 我的记录板</span>}
             extra={
@@ -196,6 +241,53 @@ export default function HomePage() {
                   </div>
                 ))}
               </div>
+            )}
+          </Card>
+        </Col>
+      </Row>
+
+      {/* 今日任务 */}
+      <Row gutter={16}>
+        <Col span={24}>
+          <Card
+            title={<span>⏰ 今日任务</span>}
+            extra={<a onClick={() => navigate('/assessments')}>查看全部 <RightOutlined /></a>}
+          >
+            {todayTasks.length === 0 ? (
+              <Empty description="暂无今日任务" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+            ) : (
+              <List
+                dataSource={todayTasks}
+                renderItem={task => {
+                  const isUrgent = task.type === 'assessment' && dayjs(task.data.deadline).diff(dayjs(), 'hour') <= 3
+                  return (
+                    <List.Item
+                      style={{
+                        borderLeft: `3px solid ${isUrgent ? '#EF4444' : '#3B82F6'}`,
+                        paddingLeft: 12,
+                        background: isUrgent ? '#FEF2F2' : 'transparent',
+                        cursor: 'pointer'
+                      }}
+                      onClick={() => navigate(task.type === 'assessment' ? '/assessments' : '/interviews')}
+                    >
+                      <List.Item.Meta
+                        title={`${task.app.company} - ${task.type === 'assessment' ? task.data.name : task.data.round}`}
+                        description={
+                          <div>
+                            <div>{task.app.position}</div>
+                            <div style={{ color: isUrgent ? '#EF4444' : '#3B82F6', fontWeight: 500 }}>
+                              {task.type === 'assessment'
+                                ? `⏱ ${dayjs(task.data.deadline).format('HH:mm')} 截止`
+                                : `✓ 今天 ${dayjs(task.data.datetime).format('HH:mm')}`
+                              }
+                            </div>
+                          </div>
+                        }
+                      />
+                    </List.Item>
+                  )
+                }}
+              />
             )}
           </Card>
         </Col>

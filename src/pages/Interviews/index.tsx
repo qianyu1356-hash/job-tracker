@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { App, Card, Button, Space, Tag, Modal, Form, Input, DatePicker, TimePicker, Select, Empty, Collapse } from 'antd'
-import { PlusOutlined, CalendarOutlined, UnorderedListOutlined, EditOutlined, MessageOutlined } from '@ant-design/icons'
+import { PlusOutlined, EditOutlined, MessageOutlined } from '@ant-design/icons'
 import { useAppStore } from '../../store'
 import type { Application, Interview, InterviewStatus } from '../../types'
 import dayjs from 'dayjs'
@@ -27,7 +27,6 @@ export default function InterviewsPage() {
   const addInterview = useAppStore(s => s.addInterview)
   const updateInterview = useAppStore(s => s.updateInterview)
 
-  const [viewMode, setViewMode] = useState<'calendar' | 'list'>('calendar')
   const [searchText, setSearchText] = useState('')
   const [roundFilter, setRoundFilter] = useState('')
   const [statusFilterList, setStatusFilterList] = useState<InterviewStatus | 'all'>('all')
@@ -55,13 +54,6 @@ export default function InterviewsPage() {
     const matchRound = !roundFilter || interview.round === roundFilter
     const matchStatus = statusFilterList === 'all' || interview.status === statusFilterList
     return matchSearch && matchRound && matchStatus
-  })
-
-  const calendarData: Record<string, typeof allInterviews> = {}
-  allInterviews.forEach(item => {
-    const date = dayjs(item.interview.datetime).format('YYYY-MM-DD')
-    if (!calendarData[date]) calendarData[date] = []
-    calendarData[date].push(item)
   })
 
   const handleAddInterview = (values: any) => {
@@ -116,13 +108,6 @@ export default function InterviewsPage() {
     setEditModalOpen(false)
   }
 
-  const today = dayjs()
-  const startOfMonth = today.startOf('month')
-  const calendarDays: (dayjs.Dayjs | null)[] = [
-    ...Array(startOfMonth.day()).fill(null),
-    ...Array.from({ length: today.daysInMonth() }, (_, i) => startOfMonth.add(i, 'day'))
-  ]
-
   // 状态统计
   const counts = {
     all: allInterviews.length,
@@ -139,67 +124,8 @@ export default function InterviewsPage() {
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setAddModalOpen(true)}>新增面试</Button>
         </div>
 
-        <Space style={{ marginBottom: 16 }}>
-          <Button icon={<CalendarOutlined />} type={viewMode === 'calendar' ? 'primary' : 'default'} onClick={() => setViewMode('calendar')}>日历视图</Button>
-          <Button icon={<UnorderedListOutlined />} type={viewMode === 'list' ? 'primary' : 'default'} onClick={() => setViewMode('list')}>列表视图</Button>
-        </Space>
-
-        {/* 日历视图 */}
-        {viewMode === 'calendar' && (
-          <div>
-            <h3 style={{ marginBottom: 16 }}>{today.format('YYYY年M月')}</h3>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 1, background: '#E2E8F0', border: '1px solid #E2E8F0', borderRadius: 8, overflow: 'hidden' }}>
-              {['周日', '周一', '周二', '周三', '周四', '周五', '周六'].map(d => (
-                <div key={d} style={{ background: '#F8FAFC', padding: 10, textAlign: 'center', fontSize: 13, fontWeight: 600, color: '#64748B' }}>{d}</div>
-              ))}
-              {calendarDays.map((day, idx) => {
-                const dateStr = day?.format('YYYY-MM-DD') || ''
-                const dayInterviews = day ? (calendarData[dateStr] || []) : []
-                const isToday = day?.isSame(today, 'day')
-                return (
-                  <div key={idx} style={{ background: isToday ? '#EFF6FF' : day ? '#fff' : '#FAFBFC', minHeight: 100, padding: 8 }}>
-                    {day && (
-                      <>
-                        <div style={{ fontSize: 14, fontWeight: isToday ? 600 : 400, color: isToday ? '#3B82F6' : '#0F172A', marginBottom: 4 }}>{day.date()}</div>
-                        {dayInterviews.map(({ app, interview }) => (
-                          <div
-                            key={interview.id}
-                            onClick={() => {
-                              setSelectedInterview({ app, interview })
-                              editForm.setFieldsValue({
-                                round: interview.round,
-                                format: interview.format,
-                                location: interview.location,
-                                interviewer: interview.interviewer,
-                                date: dayjs(interview.datetime),
-                                time: dayjs(interview.datetime),
-                              })
-                              setEditModalOpen(true)
-                            }}
-                            style={{
-                              background: interview.status === 'done' ? '#D1FAE5' : interview.status === 'abandoned' ? '#F1F5F9' : '#EDE9FE',
-                              color: interview.status === 'done' ? '#065F46' : interview.status === 'abandoned' ? '#94A3B8' : '#5B21B6',
-                              borderRadius: 4, padding: '2px 6px', fontSize: 11, marginBottom: 2,
-                              cursor: 'pointer', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
-                            }}
-                          >
-                            {dayjs(interview.datetime).format('HH:mm')} {app.company.slice(0, 3)}{interview.round}
-                          </div>
-                        ))}
-                      </>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* 列表视图 */}
-        {viewMode === 'list' && (
-          <div>
-            {/* 筛选栏 */}
-            <Space style={{ marginBottom: 16, flexWrap: 'wrap' }}>
+        {/* 筛选栏 */}
+        <Space style={{ marginBottom: 16, flexWrap: 'wrap' }}>
               <Input placeholder="搜索公司或岗位" style={{ width: 200 }} value={searchText} onChange={e => setSearchText(e.target.value)} allowClear />
               <Select placeholder="全部轮次" style={{ width: 130 }} value={roundFilter || undefined} onChange={setRoundFilter} allowClear
                 options={roundPresets.map(r => ({ label: r, value: r }))}
@@ -317,9 +243,7 @@ export default function InterviewsPage() {
                 })}
               </div>
             )}
-          </div>
-        )}
-      </Card>
+          </Card>
 
       {/* 新增面试弹窗 */}
       <Modal title="新增面试" open={addModalOpen} onCancel={() => { setAddModalOpen(false); addForm.resetFields() }} onOk={() => addForm.submit()} width={600}>

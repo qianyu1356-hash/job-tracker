@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Application, ApplicationStatus, Assessment, Interview, Message, Resume } from '../types'
+import type { Application, ApplicationStatus, Assessment, Interview, Message, Resume, Todo } from '../types'
 import dayjs from 'dayjs'
 
 const mockApplications: Application[] = [
@@ -80,6 +80,8 @@ interface AppStore {
   applications: Application[]
   messages: Message[]
   resumes: Resume[]
+  goal: string
+  todos: Todo[]
   addApplication: (app: Omit<Application, 'id' | 'createdAt' | 'assessments' | 'interviews'>) => void
   updateApplication: (id: string, updates: Partial<Application>) => void
   deleteApplication: (id: string) => void
@@ -91,6 +93,10 @@ interface AppStore {
   markMessageRead: (id: string) => void
   markAllMessagesRead: () => void
   unreadCount: () => number
+  setGoal: (goal: string) => void
+  addTodo: (content: string) => void
+  toggleTodo: (id: string) => void
+  deleteTodo: (id: string) => void
 }
 
 export const useAppStore = create<AppStore>((set, get) => ({
@@ -100,6 +106,11 @@ export const useAppStore = create<AppStore>((set, get) => ({
     { id: 'r1', name: '通用简历_v3.pdf', tags: ['前端开发', '互联网'], isDefault: true,
       description: '适用于互联网大厂，突出技术栈和项目经验', fileUrl: '', fileSize: 245000,
       createdAt: '2026-04-15T00:00:00Z' }
+  ],
+  goal: '本月目标：拿到 3 个 offer，加油！💪',
+  todos: [
+    { id: 't1', content: '准备字节跳动一面', done: false, createdAt: new Date().toISOString() },
+    { id: 't2', content: '完成美团综合能力测评', done: false, createdAt: new Date().toISOString() },
   ],
 
   addApplication: (app) => set((s) => ({
@@ -173,4 +184,18 @@ export const useAppStore = create<AppStore>((set, get) => ({
   })),
 
   unreadCount: () => get().messages.filter(m => !m.isRead).length,
+
+  setGoal: (goal) => set({ goal }),
+
+  addTodo: (content) => set((s) => ({
+    todos: [...s.todos, { id: Date.now().toString(), content, done: false, createdAt: new Date().toISOString() }]
+  })),
+
+  toggleTodo: (id) => set((s) => ({
+    todos: s.todos.map(t => t.id === id ? { ...t, done: !t.done } : t)
+  })),
+
+  deleteTodo: (id) => set((s) => ({
+    todos: s.todos.filter(t => t.id !== id)
+  })),
 }))

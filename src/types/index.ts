@@ -72,3 +72,10 @@ export interface Message {
   targetUrl: string
   createdAt: string
 }
+
+export interface Todo {
+  id: string
+  content: string
+  done: boolean
+  createdAt: string
+}

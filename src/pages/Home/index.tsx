@@ -1,5 +1,6 @@
-import { Card, Row, Col, Statistic, List, Tag, Empty } from 'antd'
-import { ArrowUpOutlined, RightOutlined } from '@ant-design/icons'
+import { useState } from 'react'
+import { Card, Row, Col, Statistic, List, Tag, Empty, Checkbox, Button, Input, Modal, App } from 'antd'
+import { ArrowUpOutlined, RightOutlined, PlusOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { useAppStore } from '../../store'
 import dayjs from 'dayjs'
@@ -10,9 +11,20 @@ dayjs.extend(relativeTime)
 dayjs.locale('zh-cn')
 
 export default function HomePage() {
+  const { message } = App.useApp()
   const navigate = useNavigate()
   const applications = useAppStore(s => s.applications)
-  const messages = useAppStore(s => s.messages)
+  const goal = useAppStore(s => s.goal)
+  const todos = useAppStore(s => s.todos)
+  const setGoal = useAppStore(s => s.setGoal)
+  const addTodo = useAppStore(s => s.addTodo)
+  const toggleTodo = useAppStore(s => s.toggleTodo)
+  const deleteTodo = useAppStore(s => s.deleteTodo)
+
+  const [goalModalOpen, setGoalModalOpen] = useState(false)
+  const [goalInput, setGoalInput] = useState(goal)
+  const [todoModalOpen, setTodoModalOpen] = useState(false)
+  const [todoInput, setTodoInput] = useState('')
 
   const stats = {
     total: applications.length,
@@ -40,8 +52,6 @@ export default function HomePage() {
     const timeB = b.type === 'assessment' ? b.data.deadline : b.data.datetime
     return dayjs(timeA).valueOf() - dayjs(timeB).valueOf()
   }).slice(0, 5)
-
-  const recentMessages = messages.slice(0, 4)
 
   return (
     <div>
@@ -92,7 +102,7 @@ export default function HomePage() {
         </Col>
       </Row>
 
-      {/* 今日任务 + 消息通知 */}
+      {/* 今日任务 + 记录板 */}
       <Row gutter={16}>
         <Col span={12}>
           <Card
@@ -140,33 +150,103 @@ export default function HomePage() {
 
         <Col span={12}>
           <Card
-            title={<span>🔔 消息通知</span>}
-            extra={<a onClick={() => navigate('/messages')}>查看全部 <RightOutlined /></a>}
+            title={<span>📋 我的记录板</span>}
+            extra={
+              <Button size="small" icon={<PlusOutlined />} onClick={() => { setTodoInput(''); setTodoModalOpen(true) }}>
+                添加待办
+              </Button>
+            }
           >
-            <List
-              dataSource={recentMessages}
-              renderItem={msg => (
-                <List.Item
-                  style={{
-                    background: msg.isRead ? 'transparent' : '#EFF6FF',
-                    cursor: 'pointer',
-                    paddingLeft: 12
-                  }}
-                  onClick={() => navigate(msg.targetUrl)}
-                >
-                  <List.Item.Meta
-                    avatar={<span style={{ fontSize: 20 }}>
-                      {msg.type === 'assessment' ? '📝' : msg.type === 'interview' ? '🎯' : msg.type === 'status_change' ? '✅' : '📤'}
-                    </span>}
-                    title={<span style={{ fontWeight: msg.isRead ? 'normal' : 600 }}>{msg.title}</span>}
-                    description={<span style={{ fontSize: 12, color: '#94A3B8' }}>{dayjs(msg.createdAt).fromNow()}</span>}
-                  />
-                </List.Item>
-              )}
-            />
+            {/* 目标横幅 */}
+            <div
+              onClick={() => { setGoalInput(goal); setGoalModalOpen(true) }}
+              style={{
+                background: 'linear-gradient(135deg, #EDE9FE, #DDD6FE)',
+                borderRadius: 8, padding: '12px 16px', marginBottom: 16,
+                cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+              }}
+            >
+              <span style={{ fontSize: 14, fontWeight: 500, color: '#5B21B6' }}>{goal}</span>
+              <EditOutlined style={{ color: '#7C3AED', fontSize: 14 }} />
+            </div>
+
+            {/* 待办列表 */}
+            {todos.length === 0 ? (
+              <Empty description="暂无待办" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {todos.map(todo => (
+                  <div key={todo.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Checkbox
+                      checked={todo.done}
+                      onChange={() => toggleTodo(todo.id)}
+                    />
+                    <span style={{
+                      flex: 1, fontSize: 14,
+                      color: todo.done ? '#94A3B8' : '#0F172A',
+                      textDecoration: todo.done ? 'line-through' : 'none'
+                    }}>
+                      {todo.content}
+                    </span>
+                    <Button
+                      type="text" size="small" danger
+                      icon={<DeleteOutlined />}
+                      onClick={() => deleteTodo(todo.id)}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
           </Card>
         </Col>
       </Row>
+
+      {/* 编辑目标弹窗 */}
+      <Modal
+        title="编辑目标"
+        open={goalModalOpen}
+        onCancel={() => setGoalModalOpen(false)}
+        onOk={() => { setGoal(goalInput); setGoalModalOpen(false); message.success('目标已更新') }}
+        okText="保存"
+        cancelText="取消"
+      >
+        <Input.TextArea
+          rows={3}
+          value={goalInput}
+          onChange={e => setGoalInput(e.target.value)}
+          placeholder="写下你的目标或激励语..."
+          maxLength={100}
+          showCount
+        />
+      </Modal>
+
+      {/* 添加待办弹窗 */}
+      <Modal
+        title="添加待办"
+        open={todoModalOpen}
+        onCancel={() => setTodoModalOpen(false)}
+        onOk={() => {
+          if (!todoInput.trim()) return
+          addTodo(todoInput.trim())
+          setTodoModalOpen(false)
+          message.success('待办已添加')
+        }}
+        okText="添加"
+        cancelText="取消"
+      >
+        <Input
+          value={todoInput}
+          onChange={e => setTodoInput(e.target.value)}
+          placeholder="输入待办内容..."
+          maxLength={50}
+          onPressEnter={() => {
+            if (!todoInput.trim()) return
+            addTodo(todoInput.trim())
+            setTodoModalOpen(false)
+            message.success('待办已添加')
+          }}
+        />
+      </Modal>
     </div>
   )
 }

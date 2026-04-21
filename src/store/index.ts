@@ -88,6 +88,7 @@ interface AppStore {
   updateStatus: (id: string, status: ApplicationStatus) => void
   addAssessment: (applicationId: string, assessment: Omit<Assessment, 'id' | 'applicationId'>) => void
   markAssessmentDone: (applicationId: string, assessmentId: string) => void
+  updateAssessment: (applicationId: string, assessmentId: string, updates: Partial<Assessment>) => void
   addInterview: (applicationId: string, interview: Omit<Interview, 'id' | 'applicationId'>) => void
   updateInterview: (applicationId: string, interviewId: string, updates: Partial<Interview>) => void
   markMessageRead: (id: string) => void
@@ -153,6 +154,13 @@ export const useAppStore = create<AppStore>((set, get) => ({
           as.id === assessmentId ? { ...as, status: 'done' as const } : as
         )
       }
+    })
+  })),
+
+  updateAssessment: (applicationId, assessmentId, updates) => set((s) => ({
+    applications: s.applications.map(a => {
+      if (a.id !== applicationId) return a
+      return { ...a, assessments: a.assessments.map(as => as.id === assessmentId ? { ...as, ...updates } : as) }
     })
   })),
 

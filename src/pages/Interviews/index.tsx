@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { App, Card, Button, Space, Tag, Modal, Form, Input, DatePicker, TimePicker, Select, Empty, Collapse } from 'antd'
+import { App, Card, Button, Space, Tag, Modal, Form, Input, DatePicker, TimePicker, Select, Empty, Collapse, AutoComplete } from 'antd'
 import { PlusOutlined, EditOutlined, MessageOutlined } from '@ant-design/icons'
 import { useAppStore } from '../../store'
 import type { Application, Interview, InterviewStatus } from '../../types'
@@ -270,7 +270,13 @@ export default function InterviewsPage() {
             </Form.Item>
           </Space.Compact>
           <Form.Item name="format" label="面试形式">
-            <Select allowClear options={Object.entries(formatConfig).map(([k, v]) => ({ label: v, value: k }))} />
+            <AutoComplete
+              placeholder="选择或输入自定义形式"
+              options={Object.entries(formatConfig).map(([k, v]) => ({ label: v, value: k }))}
+              filterOption={(input, option) =>
+                (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+              }
+            />
           </Form.Item>
           <Form.Item name="location" label="地点/会议链接"><Input /></Form.Item>
           <Form.Item name="interviewer" label="面试官"><Input /></Form.Item>
@@ -305,7 +311,13 @@ export default function InterviewsPage() {
             </Form.Item>
           </Space.Compact>
           <Form.Item name="format" label="面试形式">
-            <Select allowClear options={Object.entries(formatConfig).map(([k, v]) => ({ label: v, value: k }))} />
+            <AutoComplete
+              placeholder="选择或输入自定义形式"
+              options={Object.entries(formatConfig).map(([k, v]) => ({ label: v, value: k }))}
+              filterOption={(input, option) =>
+                (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+              }
+            />
           </Form.Item>
           <Form.Item name="location" label="地点/会议链接"><Input /></Form.Item>
           <Form.Item name="interviewer" label="面试官"><Input /></Form.Item>

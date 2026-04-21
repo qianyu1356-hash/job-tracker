@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Card, Button, Input, Select, Space, Tag, Modal, Form, DatePicker, TimePicker, message, Empty } from 'antd'
 import { PlusOutlined, SearchOutlined, CloseOutlined, EditOutlined, CheckOutlined, LinkOutlined } from '@ant-design/icons'
 import { useAppStore } from '../../store'
-import type { AssessmentStatus } from '../../types'
+import type { Assessment, AssessmentStatus } from '../../types'
 import dayjs from 'dayjs'
 
 const statusConfig: Record<AssessmentStatus, { label: string; color: string }> = {
@@ -15,13 +15,17 @@ export default function AssessmentsPage() {
   const applications = useAppStore(s => s.applications)
   const addAssessment = useAppStore(s => s.addAssessment)
   const markAssessmentDone = useAppStore(s => s.markAssessmentDone)
+  const updateAssessment = useAppStore(s => s.updateAssessment)
 
   const [statusFilter, setStatusFilter] = useState<AssessmentStatus>('pending')
   const [searchText, setSearchText] = useState('')
   const [jobFilter, setJobFilter] = useState<string>('')
   const [deadlineFilter, setDeadlineFilter] = useState<string>('')
   const [addModalOpen, setAddModalOpen] = useState(false)
+  const [editModalOpen, setEditModalOpen] = useState(false)
+  const [selectedAssessment, setSelectedAssessment] = useState<{ appId: string; assessment: Assessment } | null>(null)
   const [form] = Form.useForm()
+  const [editForm] = Form.useForm()
 
   // 扁平化所有测评
   const allAssessments = applications.flatMap(app =>
@@ -93,6 +97,21 @@ export default function AssessmentsPage() {
   const handleMarkDone = (appId: string, assessmentId: string) => {
     markAssessmentDone(appId, assessmentId)
     message.success('已标记完成')
+  }
+
+  const handleEditAssessment = (values: any) => {
+    if (!selectedAssessment) return
+    const datetime = dayjs(values.date).hour(values.time.hour()).minute(values.time.minute()).toISOString()
+    updateAssessment(selectedAssessment.appId, selectedAssessment.assessment.id, {
+      name: values.name,
+      platform: values.platform,
+      link: values.link,
+      deadline: datetime,
+      note: values.note,
+    })
+    message.success('测评已更新')
+    setEditModalOpen(false)
+    editForm.resetFields()
   }
 
   return (
@@ -202,7 +221,18 @@ export default function AssessmentsPage() {
                         <Button
                           size="small"
                           icon={<EditOutlined />}
-                          onClick={() => message.info('编辑功能开发中')}
+                          onClick={() => {
+                            setSelectedAssessment({ appId: app.id, assessment })
+                            editForm.setFieldsValue({
+                              name: assessment.name,
+                              platform: assessment.platform,
+                              link: assessment.link,
+                              date: dayjs(assessment.deadline),
+                              time: dayjs(assessment.deadline),
+                              note: assessment.note,
+                            })
+                            setEditModalOpen(true)
+                          }}
                         >
                           编辑
                         </Button>
@@ -252,6 +282,38 @@ export default function AssessmentsPage() {
           <Space.Compact style={{ width: '100%' }}>
             <Form.Item name="date" label="截止日期" rules={[{ required: true }]} style={{ flex: 1, marginBottom: 0 }}>
               <DatePicker style={{ width: '100%' }} disabledDate={current => current && current < dayjs().startOf('day')} />
+            </Form.Item>
+            <Form.Item name="time" label="截止时间" rules={[{ required: true }]} style={{ flex: 1, marginBottom: 0 }}>
+              <TimePicker format="HH:mm" style={{ width: '100%' }} />
+            </Form.Item>
+          </Space.Compact>
+          <Form.Item name="note" label="备注">
+            <Input.TextArea rows={3} maxLength={200} showCount />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* 编辑测评弹窗 */}
+      <Modal
+        title={selectedAssessment ? `编辑测评 · ${selectedAssessment.assessment.name}` : '编辑测评'}
+        open={editModalOpen}
+        onCancel={() => { setEditModalOpen(false); editForm.resetFields() }}
+        onOk={() => editForm.submit()}
+        width={600}
+      >
+        <Form form={editForm} layout="vertical" onFinish={handleEditAssessment}>
+          <Form.Item name="name" label="测评名称" rules={[{ required: true, max: 30 }]}>
+            <Input placeholder="如：行测测评、性格测试" />
+          </Form.Item>
+          <Form.Item name="platform" label="测评平台">
+            <Input placeholder="如：北森、智鼎、倍智" maxLength={20} />
+          </Form.Item>
+          <Form.Item name="link" label="测评链接" rules={[{ type: 'url', message: '请输入有效的URL' }]}>
+            <Input placeholder="https://..." />
+          </Form.Item>
+          <Space.Compact style={{ width: '100%' }}>
+            <Form.Item name="date" label="截止日期" rules={[{ required: true }]} style={{ flex: 1, marginBottom: 0 }}>
+              <DatePicker style={{ width: '100%' }} />
             </Form.Item>
             <Form.Item name="time" label="截止时间" rules={[{ required: true }]} style={{ flex: 1, marginBottom: 0 }}>
               <TimePicker format="HH:mm" style={{ width: '100%' }} />

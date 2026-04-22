@@ -1,26 +1,40 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { App, Card, Button, Input, Upload, Tag, Modal, Form, Select, Space, Empty, Tooltip } from 'antd'
+import type { UploadFile } from 'antd/es/upload/interface'
 import { PlusOutlined, SearchOutlined, AppstoreOutlined, UnorderedListOutlined, DownloadOutlined, EyeOutlined, DeleteOutlined } from '@ant-design/icons'
+import { api } from '../../api/client'
+import dayjs from 'dayjs'
 
-const presetCategories = [
-  { key: 'all', label: '📂 全部材料', count: 6 },
-  { key: 'degree', label: '🎓 学历证明', count: 1 },
-  { key: 'transcript', label: '📊 成绩单', count: 2 },
-  { key: 'internship', label: '💼 实习证明', count: 1 },
-  { key: 'award', label: '🏆 获奖证书', count: 1 },
-  { key: 'portfolio', label: '🖼️ 作品集', count: 1 },
-]
+type MaterialCategory = {
+  key: string
+  label: string
+  isPreset?: boolean
+  count?: number
+}
 
-const mockFiles = [
-  { id: '1', name: '学信网学籍证明.pdf', category: 'degree', size: '245 KB', date: '2026-04-10', type: 'pdf' },
-  { id: '2', name: '2025秋季成绩单.pdf', category: 'transcript', size: '312 KB', date: '2026-03-20', type: 'pdf' },
-  { id: '3', name: '腾讯实习证明.pdf', category: 'internship', size: '180 KB', date: '2026-02-15', type: 'pdf' },
-  { id: '4', name: 'ACM区域赛银奖证书.jpg', category: 'award', size: '1.2 MB', date: '2025-12-01', type: 'image' },
-  { id: '5', name: '产品设计作品集.pdf', category: 'portfolio', size: '8.4 MB', date: '2026-04-01', type: 'pdf' },
-  { id: '6', name: '英语六级成绩单.jpg', category: 'transcript', size: '560 KB', date: '2025-09-10', type: 'image' },
-]
+type MaterialItem = {
+  id: string
+  name: string
+  category: string
+  size: number
+  createdAt: string
+  type: string
+  note?: string
+  fileUrl?: string
+}
 
-const fileIcon = (type: string) => type === 'pdf' ? '📄' : type === 'image' ? '🖼️' : '📝'
+const fileIcon = (type: string) => {
+  if (type === 'pdf') return '📄'
+  if (type === 'image') return '🖼️'
+  if (type === 'word') return '📝'
+  return '📁'
+}
+
+function formatSize(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
 
 export default function MaterialsPage() {
   const { message, modal } = App.useApp()
@@ -29,16 +43,50 @@ export default function MaterialsPage() {
   const [searchText, setSearchText] = useState('')
   const [uploadModalOpen, setUploadModalOpen] = useState(false)
   const [addCatModalOpen, setAddCatModalOpen] = useState(false)
-  const [categories, setCategories] = useState(presetCategories)
-  const [files, setFiles] = useState(mockFiles)
+  const [loading, setLoading] = useState(false)
+  const [categories, setCategories] = useState<MaterialCategory[]>([])
+  const [files, setFiles] = useState<MaterialItem[]>([])
+  const [fileList, setFileList] = useState<UploadFile[]>([])
   const [form] = Form.useForm()
   const [catForm] = Form.useForm()
 
-  const filteredFiles = files.filter(f => {
-    const matchCat = activeCategory === 'all' || f.category === activeCategory
-    const matchSearch = !searchText || f.name.toLowerCase().includes(searchText.toLowerCase())
-    return matchCat && matchSearch
-  })
+  const loadData = async () => {
+    setLoading(true)
+    try {
+      const [catRes, fileRes] = await Promise.all([
+        api.get<{ items: MaterialCategory[] }>('/material-categories'),
+        api.get<{ items: MaterialItem[] }>('/materials'),
+      ])
+      setCategories(catRes.items || [])
+      setFiles(fileRes.items || [])
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '加载材料库失败')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    void loadData()
+  }, [])
+
+  const displayCategories = useMemo(
+    () => [
+      { key: 'all', label: '全部材料', count: files.length },
+      ...categories.map((c) => ({ ...c, count: files.filter((f) => f.category === c.key).length })),
+    ],
+    [categories, files],
+  )
+
+  const filteredFiles = useMemo(
+    () =>
+      files.filter((f) => {
+        const matchCat = activeCategory === 'all' || f.category === activeCategory
+        const matchSearch = !searchText || f.name.toLowerCase().includes(searchText.toLowerCase())
+        return matchCat && matchSearch
+      }),
+    [activeCategory, files, searchText],
+  )
 
   const handleDelete = (id: string, name: string) => {
     modal.confirm({
@@ -47,35 +95,95 @@ export default function MaterialsPage() {
       okText: '确认删除',
       okType: 'danger',
       cancelText: '取消',
-      onOk: () => {
-        setFiles(prev => prev.filter(f => f.id !== id))
-        message.success('文件已删除')
-      }
+      onOk: async () => {
+        try {
+          await api.delete(`/materials/${id}`)
+          await loadData()
+          message.success('文件已删除')
+        } catch (err) {
+          message.error(err instanceof Error ? err.message : '删除失败')
+        }
+      },
     })
   }
 
-  const handleAddCategory = (values: any) => {
-    setCategories(prev => [...prev, { key: Date.now().toString(), label: `📂 ${values.name}`, count: 0 }])
-    message.success('分类已创建')
-    setAddCatModalOpen(false)
-    catForm.resetFields()
+  const handleAddCategory = async (values: any) => {
+    try {
+      await api.post('/material-categories', { label: values.name })
+      await loadData()
+      message.success('分类已创建')
+      setAddCatModalOpen(false)
+      catForm.resetFields()
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '创建分类失败')
+    }
   }
+
+  const handleUpload = async (values: any) => {
+    if (fileList.length === 0) {
+      message.warning('请先选择文件')
+      return
+    }
+    if (!values.category) {
+      message.warning('请选择分类')
+      return
+    }
+    setLoading(true)
+    try {
+      await Promise.all(
+        fileList.map((f) =>
+          api.post('/materials', {
+            name: f.name,
+            category: values.category,
+            size: f.size || 0,
+            note: values.note || '',
+          }),
+        ),
+      )
+      await loadData()
+      message.success('上传成功')
+      setUploadModalOpen(false)
+      form.resetFields()
+      setFileList([])
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '上传失败')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const categoryName = (key: string) => displayCategories.find((c) => c.key === key)?.label || key
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 20, alignItems: 'start' }}>
-      {/* 左侧分类 */}
       <Card bodyStyle={{ padding: 0 }}>
-        <div style={{ padding: '14px 20px', borderBottom: '1px solid #F1F5F9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontWeight: 600, fontSize: 14 }}>
+        <div
+          style={{
+            padding: '14px 20px',
+            borderBottom: '1px solid #F1F5F9',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            fontWeight: 600,
+            fontSize: 14,
+          }}
+        >
           分类
-          <Button type="link" size="small" onClick={() => setAddCatModalOpen(true)}>＋</Button>
+          <Button type="link" size="small" onClick={() => setAddCatModalOpen(true)}>
+            ＋
+          </Button>
         </div>
-        {categories.map(cat => (
+        {displayCategories.map((cat) => (
           <div
             key={cat.key}
             onClick={() => setActiveCategory(cat.key)}
             style={{
-              padding: '10px 20px', cursor: 'pointer', fontSize: 14,
-              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              padding: '10px 20px',
+              cursor: 'pointer',
+              fontSize: 14,
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
               background: activeCategory === cat.key ? '#EFF6FF' : 'transparent',
               color: activeCategory === cat.key ? '#3B82F6' : '#475569',
               fontWeight: activeCategory === cat.key ? 500 : 'normal',
@@ -83,17 +191,20 @@ export default function MaterialsPage() {
             }}
           >
             <span>{cat.label}</span>
-            <Tag color={activeCategory === cat.key ? 'blue' : 'default'} style={{ fontSize: 11 }}>{cat.count}</Tag>
+            <Tag color={activeCategory === cat.key ? 'blue' : 'default'} style={{ fontSize: 11 }}>
+              {cat.count || 0}
+            </Tag>
           </div>
         ))}
       </Card>
 
-      {/* 右侧文件区 */}
       <Space direction="vertical" style={{ width: '100%' }} size="middle">
         <Card>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
             <h2 style={{ margin: 0, fontSize: 20, fontWeight: 600 }}>材料库</h2>
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => setUploadModalOpen(true)}>上传材料</Button>
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => setUploadModalOpen(true)}>
+              上传材料
+            </Button>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <Input
@@ -101,34 +212,42 @@ export default function MaterialsPage() {
               prefix={<SearchOutlined />}
               style={{ width: 280 }}
               value={searchText}
-              onChange={e => setSearchText(e.target.value)}
+              onChange={(e) => setSearchText(e.target.value)}
               allowClear
             />
             <Space>
-              <Button icon={<AppstoreOutlined />} type={viewMode === 'grid' ? 'primary' : 'default'} onClick={() => setViewMode('grid')}>网格</Button>
-              <Button icon={<UnorderedListOutlined />} type={viewMode === 'list' ? 'primary' : 'default'} onClick={() => setViewMode('list')}>列表</Button>
+              <Button icon={<AppstoreOutlined />} type={viewMode === 'grid' ? 'primary' : 'default'} onClick={() => setViewMode('grid')}>
+                网格
+              </Button>
+              <Button icon={<UnorderedListOutlined />} type={viewMode === 'list' ? 'primary' : 'default'} onClick={() => setViewMode('list')}>
+                列表
+              </Button>
             </Space>
           </div>
         </Card>
 
         {filteredFiles.length === 0 ? (
-          <Card><Empty description="暂无文件" /></Card>
+          <Card loading={loading}>
+            <Empty description="暂无文件" />
+          </Card>
         ) : viewMode === 'grid' ? (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 16 }}>
-            {filteredFiles.map(file => (
-              <Card
-                key={file.id}
-                hoverable
-                bodyStyle={{ padding: 16, textAlign: 'center' }}
-              >
+            {filteredFiles.map((file) => (
+              <Card key={file.id} hoverable bodyStyle={{ padding: 16, textAlign: 'center' }}>
                 <div style={{ fontSize: 40, marginBottom: 10 }}>{fileIcon(file.type)}</div>
                 <Tooltip title={file.name}>
                   <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.name}</div>
                 </Tooltip>
-                <div style={{ fontSize: 12, color: '#94A3B8', marginBottom: 10 }}>{file.size} · {file.date.slice(5)}</div>
+                <div style={{ fontSize: 12, color: '#94A3B8', marginBottom: 10 }}>
+                  {formatSize(file.size)} · {dayjs(file.createdAt).format('MM-DD')}
+                </div>
                 <Space size="small">
-                  <Button size="small" icon={<EyeOutlined />} onClick={() => message.info('预览功能开发中')}>预览</Button>
-                  <Button size="small" icon={<DownloadOutlined />} onClick={() => message.success('开始下载')}>下载</Button>
+                  <Button size="small" icon={<EyeOutlined />} onClick={() => message.info('预览功能待接入文件服务')}>
+                    预览
+                  </Button>
+                  <Button size="small" icon={<DownloadOutlined />} onClick={() => message.info('下载功能待接入文件服务')}>
+                    下载
+                  </Button>
                   <Button size="small" danger icon={<DeleteOutlined />} onClick={() => handleDelete(file.id, file.name)} />
                 </Space>
               </Card>
@@ -144,21 +263,28 @@ export default function MaterialsPage() {
             </Card>
           </div>
         ) : (
-          <Card bodyStyle={{ padding: 0 }}>
+          <Card bodyStyle={{ padding: 0 }} loading={loading}>
             <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 120px', padding: '12px 20px', background: '#F8FAFC', borderBottom: '1px solid #E2E8F0', fontSize: 13, fontWeight: 600, color: '#64748B' }}>
-              <span>文件名</span><span>分类</span><span>大小 / 日期</span><span>操作</span>
+              <span>文件名</span>
+              <span>分类</span>
+              <span>大小 / 日期</span>
+              <span>操作</span>
             </div>
-            {filteredFiles.map(file => (
+            {filteredFiles.map((file) => (
               <div key={file.id} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 120px', padding: '14px 20px', borderBottom: '1px solid #F1F5F9', alignItems: 'center' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontWeight: 500 }}>
                   <span style={{ fontSize: 20 }}>{fileIcon(file.type)}</span>
-                  <Tooltip title={file.name}><span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.name}</span></Tooltip>
+                  <Tooltip title={file.name}>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.name}</span>
+                  </Tooltip>
                 </div>
-                <Tag>{categories.find(c => c.key === file.category)?.label.replace(/^.{2}/, '') || file.category}</Tag>
-                <span style={{ fontSize: 13, color: '#64748B' }}>{file.size} · {file.date}</span>
+                <Tag>{categoryName(file.category)}</Tag>
+                <span style={{ fontSize: 13, color: '#64748B' }}>
+                  {formatSize(file.size)} · {dayjs(file.createdAt).format('YYYY-MM-DD')}
+                </span>
                 <Space size="small">
-                  <Button size="small" icon={<EyeOutlined />} onClick={() => message.info('预览功能开发中')} />
-                  <Button size="small" icon={<DownloadOutlined />} onClick={() => message.success('开始下载')} />
+                  <Button size="small" icon={<EyeOutlined />} onClick={() => message.info('预览功能待接入文件服务')} />
+                  <Button size="small" icon={<DownloadOutlined />} onClick={() => message.info('下载功能待接入文件服务')} />
                   <Button size="small" danger icon={<DeleteOutlined />} onClick={() => handleDelete(file.id, file.name)} />
                 </Space>
               </div>
@@ -167,28 +293,51 @@ export default function MaterialsPage() {
         )}
       </Space>
 
-      {/* 上传弹窗 */}
-      <Modal title="上传材料" open={uploadModalOpen} onCancel={() => { setUploadModalOpen(false); form.resetFields() }} onOk={() => form.submit()}>
-        <Form form={form} layout="vertical" onFinish={() => { message.success('上传成功'); setUploadModalOpen(false); form.resetFields() }}>
-          <Form.Item label="选择文件" rules={[{ required: true }]}>
-            <Upload.Dragger accept=".pdf,.jpg,.png,.doc,.docx" maxCount={5} beforeUpload={() => false}>
-              <p style={{ fontSize: 32 }}>📁</p>
+      <Modal
+        title="上传材料"
+        open={uploadModalOpen}
+        onCancel={() => {
+          setUploadModalOpen(false)
+          form.resetFields()
+          setFileList([])
+        }}
+        onOk={() => form.submit()}
+        confirmLoading={loading}
+      >
+        <Form form={form} layout="vertical" onFinish={(values) => void handleUpload(values)}>
+          <Form.Item label="选择文件" required>
+            <Upload.Dragger
+              accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
+              multiple
+              maxCount={5}
+              beforeUpload={() => false}
+              fileList={fileList}
+              onChange={(info) => setFileList(info.fileList)}
+            >
+              <p style={{ fontSize: 32 }}>📤</p>
               <p>点击或拖拽文件到此处上传</p>
-              <p style={{ fontSize: 12, color: '#94A3B8' }}>支持 PDF、JPG、PNG、Word，单文件最大 20MB</p>
+              <p style={{ fontSize: 12, color: '#94A3B8' }}>支持 PDF、JPG、PNG、Word，单文件最多 20MB</p>
             </Upload.Dragger>
           </Form.Item>
           <Form.Item name="category" label="所属分类" rules={[{ required: true }]} initialValue={activeCategory !== 'all' ? activeCategory : undefined}>
-            <Select options={categories.filter(c => c.key !== 'all').map(c => ({ label: c.label, value: c.key }))} />
+            <Select options={categories.map((c) => ({ label: c.label, value: c.key }))} />
           </Form.Item>
           <Form.Item name="note" label="备注（可选）">
-            <Input placeholder="对文件的简短说明" maxLength={50} />
+            <Input placeholder="对这批文件的简短说明" maxLength={50} />
           </Form.Item>
         </Form>
       </Modal>
 
-      {/* 新增分类弹窗 */}
-      <Modal title="新增分类" open={addCatModalOpen} onCancel={() => { setAddCatModalOpen(false); catForm.resetFields() }} onOk={() => catForm.submit()}>
-        <Form form={catForm} layout="vertical" onFinish={handleAddCategory}>
+      <Modal
+        title="新增分类"
+        open={addCatModalOpen}
+        onCancel={() => {
+          setAddCatModalOpen(false)
+          catForm.resetFields()
+        }}
+        onOk={() => catForm.submit()}
+      >
+        <Form form={catForm} layout="vertical" onFinish={(values) => void handleAddCategory(values)}>
           <Form.Item name="name" label="分类名称" rules={[{ required: true, max: 20, message: '请输入分类名称（最多20字符）' }]}>
             <Input placeholder="如：竞赛证书" autoFocus />
           </Form.Item>

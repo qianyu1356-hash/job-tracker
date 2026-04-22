@@ -1,209 +1,242 @@
 import { create } from 'zustand'
-import type { Application, ApplicationStatus, Assessment, Interview, Message, Resume, Todo } from '../types'
-import dayjs from 'dayjs'
+import { api } from '../api/client'
+import type {
+  Application,
+  ApplicationStatus,
+  Assessment,
+  Interview,
+  Message,
+  Resume,
+  Todo,
+} from '../types'
 
-const mockApplications: Application[] = [
-  {
-    id: '1', company: '字节跳动', position: '前端开发实习生', city: '北京',
-    jobType: 'daily_intern', applyDate: '2026-04-15', channel: 'BOSS直聘',
-    link: 'https://jobs.bytedance.com', status: 'assessment',
-    jd: '负责字节跳动前端基础设施建设，参与组件库、工具链开发，要求熟悉 React、TypeScript...',
-    note: '目标公司，重点准备', resumeId: 'r1', createdAt: '2026-04-15T10:00:00Z',
-    assessments: [
-      { id: 'a1', applicationId: '1', name: '行测测评', platform: '北森', status: 'pending',
-        deadline: dayjs().add(2, 'hour').toISOString() }
-    ],
-    interviews: []
-  },
-  {
-    id: '2', company: '腾讯', position: '产品经理实习生', city: '深圳',
-    jobType: 'summer_intern', applyDate: '2026-04-14', channel: '官网',
-    status: 'interviewing', createdAt: '2026-04-14T09:00:00Z',
-    assessments: [],
-    interviews: [
-      { id: 'i1', applicationId: '2', round: '一面', datetime: '2026-04-16T10:00:00Z',
-        format: 'online_feishu', location: '飞书会议', interviewer: '张工', status: 'upcoming' }
-    ]
-  },
-  {
-    id: '3', company: '阿里巴巴', position: 'Java开发实习生', city: '杭州',
-    jobType: 'daily_intern', applyDate: '2026-04-13', channel: '内推',
-    status: 'interviewing', createdAt: '2026-04-13T11:00:00Z',
-    assessments: [],
-    interviews: [
-      { id: 'i2', applicationId: '3', round: '一面', datetime: '2026-04-19T15:00:00Z',
-        format: 'online_dingtalk', location: '钉钉视频', interviewer: '王工', status: 'upcoming' }
-    ]
-  },
-  {
-    id: '4', company: '美团', position: '算法工程师实习生', city: '北京',
-    jobType: 'autumn_recruit', applyDate: '2026-04-12', channel: 'BOSS直聘',
-    status: 'screening', createdAt: '2026-04-12T14:00:00Z',
-    assessments: [
-      { id: 'a2', applicationId: '4', name: '综合能力测评', platform: '倍智', status: 'pending',
-        deadline: dayjs().add(3, 'day').toISOString() }
-    ],
-    interviews: []
-  },
-  {
-    id: '5', company: '网易', position: '游戏策划实习生', city: '广州',
-    jobType: 'daily_intern', applyDate: '2026-04-11', channel: '官网',
-    status: 'offered', createdAt: '2026-04-11T10:00:00Z',
-    assessments: [],
-    interviews: []
-  },
-  {
-    id: '6', company: '小红书', position: '数据分析实习生', city: '上海',
-    jobType: 'daily_intern', applyDate: '2026-04-10', channel: '内推',
-    status: 'submitted', createdAt: '2026-04-10T16:00:00Z',
-    assessments: [],
-    interviews: []
-  },
-]
-
-const mockMessages: Message[] = [
-  { id: 'm1', type: 'assessment', title: '测评提醒 · 美团', isRead: false,
-    description: '美团 · 算法工程师实习生 · 你添加的测评将于 3 天后截止',
-    targetUrl: '/assessments', createdAt: dayjs().subtract(5, 'minute').toISOString() },
-  { id: 'm2', type: 'interview', title: '面试提醒 · 腾讯', isRead: false,
-    description: '腾讯 · 产品经理实习生 · 你记录的一面将于明天 10:00 开始',
-    targetUrl: '/interviews', createdAt: dayjs().subtract(1, 'hour').toISOString() },
-  { id: 'm3', type: 'status_change', title: '进度更新 · 小红书', isRead: false,
-    description: '小红书 · 数据分析实习生 · 你将投递进度更新为「待测评」',
-    targetUrl: '/applications', createdAt: dayjs().subtract(3, 'hour').toISOString() },
-  { id: 'm4', type: 'apply', title: '新增投递 · 京东', isRead: true,
-    description: '京东 · 前端开发实习生 · 你添加了一条新的投递记录',
-    targetUrl: '/applications', createdAt: dayjs().subtract(1, 'day').toISOString() },
-]
+type ApplicationPayload = Omit<Application, 'id' | 'createdAt' | 'assessments' | 'interviews'>
 
 interface AppStore {
+  initialized: boolean
+  loading: boolean
+  error: string | null
   applications: Application[]
   messages: Message[]
   resumes: Resume[]
   goal: string
   todos: Todo[]
-  addApplication: (app: Omit<Application, 'id' | 'createdAt' | 'assessments' | 'interviews'>) => void
-  updateApplication: (id: string, updates: Partial<Application>) => void
-  deleteApplication: (id: string) => void
-  updateStatus: (id: string, status: ApplicationStatus) => void
-  addAssessment: (applicationId: string, assessment: Omit<Assessment, 'id' | 'applicationId'>) => void
-  markAssessmentDone: (applicationId: string, assessmentId: string) => void
-  updateAssessment: (applicationId: string, assessmentId: string, updates: Partial<Assessment>) => void
-  addInterview: (applicationId: string, interview: Omit<Interview, 'id' | 'applicationId'>) => void
-  updateInterview: (applicationId: string, interviewId: string, updates: Partial<Interview>) => void
-  markMessageRead: (id: string) => void
-  markAllMessagesRead: () => void
+
+  init: () => Promise<void>
+  refreshApplications: () => Promise<void>
+  refreshMessages: () => Promise<void>
+  refreshResumes: () => Promise<void>
+  refreshGoal: () => Promise<void>
+  refreshTodos: () => Promise<void>
+
+  addApplication: (app: ApplicationPayload) => Promise<void>
+  updateApplication: (id: string, updates: Partial<Application>) => Promise<void>
+  deleteApplication: (id: string) => Promise<void>
+  updateStatus: (id: string, status: ApplicationStatus) => Promise<void>
+
+  addAssessment: (applicationId: string, assessment: Omit<Assessment, 'id' | 'applicationId'>) => Promise<void>
+  markAssessmentDone: (_applicationId: string, assessmentId: string) => Promise<void>
+  updateAssessment: (_applicationId: string, assessmentId: string, updates: Partial<Assessment>) => Promise<void>
+  deleteAssessment: (_applicationId: string, assessmentId: string) => Promise<void>
+
+  addInterview: (applicationId: string, interview: Omit<Interview, 'id' | 'applicationId'>) => Promise<void>
+  updateInterview: (_applicationId: string, interviewId: string, updates: Partial<Interview>) => Promise<void>
+  deleteInterview: (_applicationId: string, interviewId: string) => Promise<void>
+
+  markMessageRead: (id: string) => Promise<void>
+  markAllMessagesRead: () => Promise<void>
+  deleteMessage: (id: string) => Promise<void>
+  clearMessages: () => Promise<void>
   unreadCount: () => number
-  setGoal: (goal: string) => void
-  addTodo: (content: string) => void
-  toggleTodo: (id: string) => void
-  deleteTodo: (id: string) => void
+
+  setGoal: (goal: string) => Promise<void>
+  addTodo: (content: string) => Promise<void>
+  toggleTodo: (id: string) => Promise<void>
+  deleteTodo: (id: string) => Promise<void>
+}
+
+async function loadApplications() {
+  const data = await api.get<{ items: Application[] }>('/applications')
+  return data.items || []
+}
+
+async function loadMessages() {
+  const data = await api.get<{ items: Message[] }>('/messages')
+  return data.items || []
+}
+
+async function loadResumes() {
+  const data = await api.get<{ items: Resume[] }>('/resumes')
+  return data.items || []
+}
+
+async function loadGoal() {
+  const data = await api.get<{ goal: string }>('/home/goal')
+  return data.goal || ''
+}
+
+async function loadTodos() {
+  const data = await api.get<{ items: Todo[] }>('/todos')
+  return data.items || []
 }
 
 export const useAppStore = create<AppStore>((set, get) => ({
-  applications: mockApplications,
-  messages: mockMessages,
-  resumes: [
-    { id: 'r1', name: '通用简历_v3.pdf', tags: ['前端开发', '互联网'], isDefault: true,
-      description: '适用于互联网大厂，突出技术栈和项目经验', fileUrl: '', fileSize: 245000,
-      createdAt: '2026-04-15T00:00:00Z' }
-  ],
-  goal: '本月目标：拿到 3 个 offer，加油！💪',
-  todos: [
-    { id: 't1', content: '准备字节跳动一面', done: false, createdAt: new Date().toISOString() },
-    { id: 't2', content: '完成美团综合能力测评', done: false, createdAt: new Date().toISOString() },
-  ],
+  initialized: false,
+  loading: false,
+  error: null,
+  applications: [],
+  messages: [],
+  resumes: [],
+  goal: '',
+  todos: [],
 
-  addApplication: (app) => set((s) => ({
-    applications: [...s.applications, {
-      ...app, id: Date.now().toString(), createdAt: new Date().toISOString(),
-      assessments: [], interviews: []
-    }]
-  })),
+  init: async () => {
+    if (get().loading) return
+    set({ loading: true, error: null })
+    try {
+      const [applications, messages, resumes, goal, todos] = await Promise.all([
+        loadApplications(),
+        loadMessages(),
+        loadResumes(),
+        loadGoal(),
+        loadTodos(),
+      ])
+      set({
+        applications,
+        messages,
+        resumes,
+        goal,
+        todos,
+        initialized: true,
+      })
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : '加载失败' })
+    } finally {
+      set({ loading: false })
+    }
+  },
 
-  updateApplication: (id, updates) => set((s) => ({
-    applications: s.applications.map(a => a.id === id ? { ...a, ...updates } : a)
-  })),
+  refreshApplications: async () => {
+    const applications = await loadApplications()
+    set({ applications })
+  },
 
-  deleteApplication: (id) => set((s) => ({
-    applications: s.applications.filter(a => a.id !== id)
-  })),
+  refreshMessages: async () => {
+    const messages = await loadMessages()
+    set({ messages })
+  },
 
-  updateStatus: (id, status) => set((s) => ({
-    applications: s.applications.map(a => a.id === id ? { ...a, status } : a)
-  })),
+  refreshResumes: async () => {
+    const resumes = await loadResumes()
+    set({ resumes })
+  },
 
-  addAssessment: (applicationId, assessment) => set((s) => ({
-    applications: s.applications.map(a => {
-      if (a.id !== applicationId) return a
-      const newStatus = ['submitted', 'screening'].includes(a.status) ? 'assessment' : a.status
-      return {
-        ...a,
-        status: newStatus as ApplicationStatus,
-        assessments: [...a.assessments, { ...assessment, id: Date.now().toString(), applicationId }]
-      }
-    })
-  })),
+  refreshGoal: async () => {
+    const goal = await loadGoal()
+    set({ goal })
+  },
 
-  markAssessmentDone: (applicationId, assessmentId) => set((s) => ({
-    applications: s.applications.map(a => {
-      if (a.id !== applicationId) return a
-      return {
-        ...a,
-        assessments: a.assessments.map(as =>
-          as.id === assessmentId ? { ...as, status: 'done' as const } : as
-        )
-      }
-    })
-  })),
+  refreshTodos: async () => {
+    const todos = await loadTodos()
+    set({ todos })
+  },
 
-  updateAssessment: (applicationId, assessmentId, updates) => set((s) => ({
-    applications: s.applications.map(a => {
-      if (a.id !== applicationId) return a
-      return { ...a, assessments: a.assessments.map(as => as.id === assessmentId ? { ...as, ...updates } : as) }
-    })
-  })),
+  addApplication: async (app) => {
+    await api.post('/applications', app)
+    await Promise.all([get().refreshApplications(), get().refreshMessages()])
+  },
 
-  addInterview: (applicationId, interview) => set((s) => ({
-    applications: s.applications.map(a => {
-      if (a.id !== applicationId) return a
-      const newStatus = !['offered', 'rejected'].includes(a.status) ? 'interviewing' : a.status
-      return {
-        ...a,
-        status: newStatus as ApplicationStatus,
-        interviews: [...a.interviews, { ...interview, id: Date.now().toString(), applicationId }]
-      }
-    })
-  })),
+  updateApplication: async (id, updates) => {
+    await api.patch(`/applications/${id}`, updates)
+    await Promise.all([get().refreshApplications(), get().refreshMessages()])
+  },
 
-  updateInterview: (applicationId, interviewId, updates) => set((s) => ({
-    applications: s.applications.map(a => {
-      if (a.id !== applicationId) return a
-      return { ...a, interviews: a.interviews.map(i => i.id === interviewId ? { ...i, ...updates } : i) }
-    })
-  })),
+  deleteApplication: async (id) => {
+    await api.delete(`/applications/${id}`)
+    await get().refreshApplications()
+  },
 
-  markMessageRead: (id) => set((s) => ({
-    messages: s.messages.map(m => m.id === id ? { ...m, isRead: true } : m)
-  })),
+  updateStatus: async (id, status) => {
+    await api.patch(`/applications/${id}/status`, { status })
+    await Promise.all([get().refreshApplications(), get().refreshMessages()])
+  },
 
-  markAllMessagesRead: () => set((s) => ({
-    messages: s.messages.map(m => ({ ...m, isRead: true }))
-  })),
+  addAssessment: async (applicationId, assessment) => {
+    await api.post('/assessments', { ...assessment, applicationId })
+    await Promise.all([get().refreshApplications(), get().refreshMessages()])
+  },
 
-  unreadCount: () => get().messages.filter(m => !m.isRead).length,
+  markAssessmentDone: async (_applicationId, assessmentId) => {
+    await api.patch(`/assessments/${assessmentId}/done`, {})
+    await get().refreshApplications()
+  },
 
-  setGoal: (goal) => set({ goal }),
+  updateAssessment: async (_applicationId, assessmentId, updates) => {
+    await api.patch(`/assessments/${assessmentId}`, updates)
+    await get().refreshApplications()
+  },
 
-  addTodo: (content) => set((s) => ({
-    todos: [...s.todos, { id: Date.now().toString(), content, done: false, createdAt: new Date().toISOString() }]
-  })),
+  deleteAssessment: async (_applicationId, assessmentId) => {
+    await api.delete(`/assessments/${assessmentId}`)
+    await Promise.all([get().refreshApplications(), get().refreshMessages()])
+  },
 
-  toggleTodo: (id) => set((s) => ({
-    todos: s.todos.map(t => t.id === id ? { ...t, done: !t.done } : t)
-  })),
+  addInterview: async (applicationId, interview) => {
+    await api.post('/interviews', { ...interview, applicationId })
+    await Promise.all([get().refreshApplications(), get().refreshMessages()])
+  },
 
-  deleteTodo: (id) => set((s) => ({
-    todos: s.todos.filter(t => t.id !== id)
-  })),
+  updateInterview: async (_applicationId, interviewId, updates) => {
+    await api.patch(`/interviews/${interviewId}`, updates)
+    await get().refreshApplications()
+  },
+
+  deleteInterview: async (_applicationId, interviewId) => {
+    await api.delete(`/interviews/${interviewId}`)
+    await Promise.all([get().refreshApplications(), get().refreshMessages()])
+  },
+
+  markMessageRead: async (id) => {
+    await api.patch(`/messages/${id}/read`, {})
+    await get().refreshMessages()
+  },
+
+  markAllMessagesRead: async () => {
+    await api.patch('/messages/read-all', {})
+    await get().refreshMessages()
+  },
+
+  deleteMessage: async (id) => {
+    await api.delete(`/messages/${id}`)
+    await get().refreshMessages()
+  },
+
+  clearMessages: async () => {
+    await api.delete('/messages')
+    await get().refreshMessages()
+  },
+
+  unreadCount: () => get().messages.filter((m) => !m.isRead).length,
+
+  setGoal: async (goal) => {
+    await api.patch('/home/goal', { goal })
+    await get().refreshGoal()
+  },
+
+  addTodo: async (content) => {
+    await api.post('/todos', { content })
+    await get().refreshTodos()
+  },
+
+  toggleTodo: async (id) => {
+    const todo = get().todos.find((t) => t.id === id)
+    if (!todo) return
+    await api.patch(`/todos/${id}`, { done: !todo.done })
+    await get().refreshTodos()
+  },
+
+  deleteTodo: async (id) => {
+    await api.delete(`/todos/${id}`)
+    await get().refreshTodos()
+  },
 }))

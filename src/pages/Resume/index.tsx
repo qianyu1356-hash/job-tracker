@@ -1,38 +1,59 @@
-import { useState } from 'react'
-import { App, Card, Button, Modal, Form, Input, Tag } from 'antd'
-import { PlusOutlined, EyeOutlined, DownloadOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons'
-
-interface Resume {
-  id: string
-  name: string
-  tags: string[]
-  description: string
-  size: string
-  updatedAt: string
-  isDefault: boolean
-}
-
-const mockResumes: Resume[] = [
-  { id: '1', name: '通用简历_v3.pdf', tags: ['前端开发', '互联网', '1页'], description: '适用于互联网大厂，突出技术栈和项目经验', size: '245 KB', updatedAt: '2026-04-15', isDefault: true },
-  { id: '2', name: '产品经理方向_v2.pdf', tags: ['产品经理', '互联网'], description: '突出产品思维和用户研究经验，适合互联网产品岗', size: '312 KB', updatedAt: '2026-04-10', isDefault: false },
-  { id: '3', name: '国企央企版_v1.pdf', tags: ['国企', '央企', '2页'], description: '格式正式，突出学历背景和获奖经历，适合国企校招', size: '198 KB', updatedAt: '2026-03-28', isDefault: false },
-]
+import { useEffect, useMemo, useState } from 'react'
+import { App, Card, Button, Modal, Form, Input, Tag, Upload } from 'antd'
+import { PlusOutlined, DownloadOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons'
+import { useAppStore } from '../../store'
+import { api } from '../../api/client'
+import type { Resume } from '../../types'
 
 const tagColors = ['blue', 'purple', 'green', 'orange', 'cyan']
 
 export default function ResumePage() {
   const { message, modal } = App.useApp()
-  const [resumes, setResumes] = useState(mockResumes)
+  const resumes = useAppStore((s) => s.resumes)
+  const refreshResumes = useAppStore((s) => s.refreshResumes)
+
   const [uploadModalOpen, setUploadModalOpen] = useState(false)
   const [editModalOpen, setEditModalOpen] = useState(false)
+  const [loading, setLoading] = useState(false)
   const [editingResume, setEditingResume] = useState<Resume | null>(null)
   const [tagInput, setTagInput] = useState('')
   const [editTags, setEditTags] = useState<string[]>([])
-  const [form] = Form.useForm()
+  const [selectedFile, setSelectedFile] = useState<File | null>(null)
 
-  const setDefault = (id: string) => {
-    setResumes(prev => prev.map(r => ({ ...r, isDefault: r.id === id })))
-    message.success('已设为默认简历')
+  const [uploadForm] = Form.useForm()
+  const [editForm] = Form.useForm()
+
+  useEffect(() => {
+    if (resumes.length === 0) {
+      void refreshResumes()
+    }
+  }, [refreshResumes, resumes.length])
+
+  const list = useMemo(
+    () =>
+      [...resumes].sort((a, b) => {
+        if (a.isDefault && !b.isDefault) return -1
+        if (!a.isDefault && b.isDefault) return 1
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      }),
+    [resumes],
+  )
+
+  const withLoading = async (fn: () => Promise<void>) => {
+    setLoading(true)
+    try {
+      await fn()
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const setDefault = async (id: string) => {
+    await withLoading(async () => {
+      await api.patch(`/resumes/${id}/default`, {})
+      await refreshResumes()
+      message.success('已设为默认简历')
+    }).catch((err: unknown) => message.error(err instanceof Error ? err.message : '设置失败'))
   }
 
   const handleDelete = (id: string, name: string) => {
@@ -42,46 +63,83 @@ export default function ResumePage() {
       okText: '确认删除',
       okType: 'danger',
       cancelText: '取消',
-      onOk: () => {
-        setResumes(prev => prev.filter(r => r.id !== id))
-        message.success('简历已删除')
-      }
+      onOk: async () => {
+        await withLoading(async () => {
+          await api.delete(`/resumes/${id}`)
+          await refreshResumes()
+          message.success('简历已删除')
+        }).catch((err: unknown) => message.error(err instanceof Error ? err.message : '删除失败'))
+      },
     })
   }
 
   const openEdit = (resume: Resume) => {
     setEditingResume(resume)
-    setEditTags([...resume.tags])
-    form.setFieldsValue({ name: resume.name.replace('.pdf', ''), description: resume.description })
+    setEditTags([...(resume.tags || [])])
+    editForm.setFieldsValue({
+      name: resume.name.replace(/\.(pdf|doc|docx)$/i, ''),
+      description: resume.description,
+    })
     setEditModalOpen(true)
   }
 
-  const handleEditSave = (values: any) => {
+  const handleEditSave = async (values: any) => {
     if (!editingResume) return
-    setResumes(prev => prev.map(r => r.id === editingResume.id
-      ? { ...r, name: values.name + '.pdf', tags: editTags, description: values.description }
-      : r
-    ))
-    message.success('简历信息已更新')
-    setEditModalOpen(false)
+    await withLoading(async () => {
+      const ext = editingResume.name.includes('.') ? editingResume.name.split('.').pop() : 'pdf'
+      await api.patch(`/resumes/${editingResume.id}`, {
+        name: `${values.name}.${ext}`,
+        tags: editTags,
+        description: values.description || '',
+      })
+      await refreshResumes()
+      message.success('简历信息已更新')
+      setEditModalOpen(false)
+    }).catch((err: unknown) => message.error(err instanceof Error ? err.message : '更新失败'))
+  }
+
+  const handleUpload = async (values: any) => {
+    if (!selectedFile) {
+      message.warning('请先选择文件')
+      return
+    }
+    await withLoading(async () => {
+      const fileName = values.name?.trim() ? values.name.trim() : selectedFile.name
+      await api.post('/resumes', {
+        name: fileName.includes('.') ? fileName : `${fileName}.pdf`,
+        description: values.description || '',
+        tags: values.tags ? String(values.tags).split(',').map((t: string) => t.trim()).filter(Boolean) : [],
+        fileSize: selectedFile.size,
+        fileUrl: '',
+        isDefault: list.length === 0,
+      })
+      await refreshResumes()
+      message.success('简历已上传')
+      setUploadModalOpen(false)
+      uploadForm.resetFields()
+      setSelectedFile(null)
+    }).catch((err: unknown) => message.error(err instanceof Error ? err.message : '上传失败'))
   }
 
   const addTag = () => {
     const t = tagInput.trim()
     if (t && !editTags.includes(t) && editTags.length < 5) {
-      setEditTags(prev => [...prev, t])
+      setEditTags((prev) => [...prev, t])
       setTagInput('')
     }
   }
 
-  // 简历缩略图（CSS 模拟）
   const ResumeThumbnail = ({ color = '#3B82F6' }: { color?: string }) => (
     <div style={{ width: 100, background: 'white', borderRadius: 4, padding: '8px 6px', boxShadow: '0 2px 8px rgba(0,0,0,0.12)' }}>
-      {[1, 0.4, 0.8, 0.6, 1, 0.7, 0.5, 1, 0.8, 0.6].map((w, i) => (
-        i === 0 ? <div key={i} style={{ height: 3, background: '#CBD5E1', borderRadius: 2, marginBottom: 3, width: '60%' }} />
-        : i === 4 ? <div key={i} style={{ height: 2, background: color, borderRadius: 1, marginBottom: 4, width: '100%' }} />
-        : <div key={i} style={{ height: 2, background: '#E2E8F0', borderRadius: 1, marginBottom: 3, width: `${w * 100}%` }} />
-      ))}
+      {[1, 0.4, 0.8, 0.6, 1, 0.7, 0.5, 1, 0.8, 0.6].map((w, i) =>
+        i === 0 ? (
+          <div key={i} style={{ height: 3, background: '#CBD5E1', borderRadius: 2, marginBottom: 3, width: '60%' }} />
+        ) : i === 4 ? (
+          <div key={i} style={{ height: 2, background: color, borderRadius: 1, marginBottom: 4, width: '100%' }} />
+        ) : (
+          <div key={i} style={{ height: 2, background: '#E2E8F0', borderRadius: 1, marginBottom: 3, width: `${w * 100}%` }} />
+        ),
+      )}
     </div>
   )
 
@@ -89,21 +147,25 @@ export default function ResumePage() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
         <h2 style={{ margin: 0, fontSize: 20, fontWeight: 600 }}>简历管理</h2>
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => setUploadModalOpen(true)}>上传简历</Button>
+        <Button type="primary" icon={<PlusOutlined />} onClick={() => setUploadModalOpen(true)}>
+          上传简历
+        </Button>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 20 }}>
-        {resumes.map((resume, idx) => (
-          <Card
-            key={resume.id}
-            hoverable
-            bodyStyle={{ padding: 0 }}
-          >
-            {/* 缩略图区 */}
-            <div style={{
-              height: 200, background: '#F8FAFC', borderBottom: '1px solid #E2E8F0',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative'
-            }}>
+        {list.map((resume, idx) => (
+          <Card key={resume.id} hoverable bodyStyle={{ padding: 0 }}>
+            <div
+              style={{
+                height: 200,
+                background: '#F8FAFC',
+                borderBottom: '1px solid #E2E8F0',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                position: 'relative',
+              }}
+            >
               {resume.isDefault && (
                 <div style={{ position: 'absolute', top: 12, right: 12, background: '#3B82F6', color: 'white', padding: '3px 10px', borderRadius: 10, fontSize: 11, fontWeight: 500 }}>
                   默认
@@ -112,41 +174,46 @@ export default function ResumePage() {
               <ResumeThumbnail color={['#3B82F6', '#8B5CF6', '#10B981'][idx % 3]} />
             </div>
 
-            {/* 信息区 */}
             <div style={{ padding: '16px 20px' }}>
               <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 6 }}>{resume.name}</div>
               <div style={{ fontSize: 13, color: '#64748B', marginBottom: 10, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-                {resume.description}
+                {resume.description || '暂无描述'}
               </div>
               <div style={{ marginBottom: 10 }}>
-                {resume.tags.map((tag, i) => (
-                  <Tag key={tag} color={tagColors[i % tagColors.length]} style={{ marginBottom: 4 }}>{tag}</Tag>
+                {(resume.tags || []).map((tag, i) => (
+                  <Tag key={tag} color={tagColors[i % tagColors.length]} style={{ marginBottom: 4 }}>
+                    {tag}
+                  </Tag>
                 ))}
               </div>
               <div style={{ fontSize: 12, color: '#94A3B8', display: 'flex', justifyContent: 'space-between' }}>
-                <span>{resume.updatedAt} 更新</span>
-                <span>{resume.size}</span>
+                <span>{new Date(resume.createdAt).toLocaleDateString()}</span>
+                <span>{Math.max(1, Math.round((resume.fileSize || 0) / 1024))} KB</span>
               </div>
             </div>
 
-            {/* 操作区 */}
             <div style={{ padding: '0 20px 16px', display: 'flex', gap: 8 }}>
-              <Button style={{ flex: 1 }} icon={<EyeOutlined />} onClick={() => message.info('预览功能开发中')}>预览</Button>
-              <Button style={{ flex: 1 }} icon={<EditOutlined />} onClick={() => openEdit(resume)}>编辑</Button>
-              <Button style={{ flex: 1 }} type="primary" icon={<DownloadOutlined />} onClick={() => message.success('开始下载')}>下载</Button>
+              <Button style={{ flex: 1 }} icon={<EditOutlined />} onClick={() => openEdit(resume)}>
+                编辑
+              </Button>
+              <Button style={{ flex: 1 }} type="primary" icon={<DownloadOutlined />} onClick={() => message.info('已记录下载动作（示例）')}>
+                下载
+              </Button>
             </div>
 
-            {/* 设为默认 / 删除 */}
             <div style={{ padding: '0 20px 16px', display: 'flex', gap: 8 }}>
               {!resume.isDefault && (
-                <Button size="small" onClick={() => setDefault(resume.id)}>设为默认</Button>
+                <Button size="small" loading={loading} onClick={() => void setDefault(resume.id)}>
+                  设为默认
+                </Button>
               )}
-              <Button size="small" danger icon={<DeleteOutlined />} onClick={() => handleDelete(resume.id, resume.name)}>删除</Button>
+              <Button size="small" danger icon={<DeleteOutlined />} loading={loading} onClick={() => handleDelete(resume.id, resume.name)}>
+                删除
+              </Button>
             </div>
           </Card>
         ))}
 
-        {/* 上传卡片 */}
         <Card
           hoverable
           bodyStyle={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: 340, cursor: 'pointer' }}
@@ -159,42 +226,60 @@ export default function ResumePage() {
         </Card>
       </div>
 
-      {/* 上传弹窗 */}
-      <Modal title="上传简历" open={uploadModalOpen} onCancel={() => setUploadModalOpen(false)} onOk={() => { message.success('简历已上传'); setUploadModalOpen(false) }}>
-        <Form layout="vertical">
+      <Modal
+        title="上传简历"
+        open={uploadModalOpen}
+        onCancel={() => {
+          setUploadModalOpen(false)
+          uploadForm.resetFields()
+          setSelectedFile(null)
+        }}
+        onOk={() => uploadForm.submit()}
+        confirmLoading={loading}
+      >
+        <Form form={uploadForm} layout="vertical" onFinish={(values) => void handleUpload(values)}>
           <Form.Item label="选择文件" required>
-            <div style={{ border: '2px dashed #E2E8F0', borderRadius: 8, padding: 28, textAlign: 'center', cursor: 'pointer' }}
-              onClick={() => message.info('文件选择功能开发中')}>
-              <div style={{ fontSize: 32, marginBottom: 8 }}>📄</div>
-              <div style={{ fontSize: 14, color: '#64748B' }}>点击选择简历文件</div>
-              <div style={{ fontSize: 12, color: '#94A3B8', marginTop: 4 }}>支持 PDF、Word，最大 10MB</div>
-            </div>
+            <Upload
+              beforeUpload={(file) => {
+                setSelectedFile(file)
+                return false
+              }}
+              maxCount={1}
+              accept=".pdf,.doc,.docx"
+              onRemove={() => setSelectedFile(null)}
+            >
+              <Button>选择简历文件</Button>
+            </Upload>
           </Form.Item>
-          <Form.Item label="简历名称" required>
+          <Form.Item name="name" label="简历名称" rules={[{ required: true }]}>
             <Input placeholder="例如：前端开发简历_v2" />
           </Form.Item>
-          <Form.Item label="备注说明">
+          <Form.Item name="tags" label="标签（逗号分隔）">
+            <Input placeholder="前端, 实习, 产品" />
+          </Form.Item>
+          <Form.Item name="description" label="备注说明">
             <Input.TextArea rows={2} placeholder="简短描述这份简历的特点和适用场景..." />
           </Form.Item>
         </Form>
       </Modal>
 
-      {/* 编辑弹窗 */}
-      <Modal title={`编辑 - ${editingResume?.name}`} open={editModalOpen} onCancel={() => setEditModalOpen(false)} onOk={() => form.submit()}>
-        <Form form={form} layout="vertical" onFinish={handleEditSave}>
+      <Modal title={`编辑 - ${editingResume?.name}`} open={editModalOpen} onCancel={() => setEditModalOpen(false)} onOk={() => editForm.submit()} confirmLoading={loading}>
+        <Form form={editForm} layout="vertical" onFinish={(values) => void handleEditSave(values)}>
           <Form.Item name="name" label="简历名称" rules={[{ required: true }]}>
-            <Input addonAfter=".pdf" />
+            <Input />
           </Form.Item>
-          <Form.Item label="适用方向标签">
+          <Form.Item label="标签">
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: '8px 12px', border: '1px solid #E2E8F0', borderRadius: 8, minHeight: 44 }}>
-              {editTags.map(tag => (
-                <Tag key={tag} closable onClose={() => setEditTags(prev => prev.filter(t => t !== tag))}>{tag}</Tag>
+              {editTags.map((tag) => (
+                <Tag key={tag} closable onClose={() => setEditTags((prev) => prev.filter((t) => t !== tag))}>
+                  {tag}
+                </Tag>
               ))}
               <input
                 value={tagInput}
-                onChange={e => setTagInput(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addTag())}
-                placeholder={editTags.length < 5 ? '输入标签后按回车' : '最多5个标签'}
+                onChange={(e) => setTagInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addTag())}
+                placeholder={editTags.length < 5 ? '输入标签后按回车' : '最多 5 个标签'}
                 disabled={editTags.length >= 5}
                 style={{ border: 'none', outline: 'none', fontSize: 14, minWidth: 80, flex: 1 }}
               />

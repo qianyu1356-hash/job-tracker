@@ -1,0 +1,37 @@
+{
+  "$schema": "https://framework-1258016615.tcloudbaseapp.com/schema/latest.json",
+  "envId": "yuqian1356-d9ghf7h26a5233c24",
+  "framework": {
+    "name": "job-tracker",
+    "plugins": {
+      "client": {
+        "use": "@cloudbase/framework-plugin-website",
+        "inputs": {
+          "buildCommand": "npm run build",
+          "outputPath": "dist",
+          "cloudPath": "/job-tracker",
+          "headers": [
+            {
+              "source": "/job-tracker/index.html",
+              "headers": [
+                {
+                  "key": "Cache-Control",
+                  "value": "no-cache, no-store, must-revalidate"
+                }
+              ]
+            },
+            {
+              "source": "/job-tracker/assets/**",
+              "headers": [
+                {
+                  "key": "Cache-Control",
+                  "value": "public, max-age=31536000, immutable"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  }
+}

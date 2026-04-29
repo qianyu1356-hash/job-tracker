@@ -3,7 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { App as AntApp, ConfigProvider, Spin } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
 import AppLayout from './components/Layout/AppLayout'
-import { api, clearAuthToken, getAuthToken } from './api/client'
+import { ApiError, api, clearAuthToken, getAuthToken } from './api/client'
 import { useAppStore } from './store'
 
 const HomePage = lazy(() => import('./pages/Home'))
@@ -38,8 +38,10 @@ function App() {
       try {
         await api.get('/auth/me')
         setAuthenticated(true)
-      } catch {
-        clearAuthToken()
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 401) {
+          clearAuthToken()
+        }
         setAuthenticated(false)
       } finally {
         setAuthChecked(true)
